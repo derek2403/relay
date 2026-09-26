@@ -10,7 +10,9 @@ const nextConfig = {
   // also defines portoWallet and geminiWallet, which import `porto` and `gemini` from
   // wagmi/connectors; wagmi 3 no longer exports them. We never use those two wallets
   // (lib/wagmi.ts), so report the missing exports as warnings instead of failing the build.
-  // Turbopack (`next dev`) ignores this hook and already tolerates them.
+  // Turbopack ignores this hook and already tolerates them; the empty turbopack entry tells
+  // Next 16 that a Turbopack build (plain `next build`, e.g. scripts/demo-e2e.ts) is intended too.
+  turbopack: {},
   webpack(config) {
     config.module.rules.push({
       test: /[\\/]node_modules[\\/]@rainbow-me[\\/]rainbowkit[\\/]dist[\\/]wallets[\\/]/,
