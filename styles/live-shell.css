@@ -1,0 +1,32 @@
+/* Workspace shell additions (wallet pill, notices, five-view nav). */
+
+/* Five views: tighten the centred nav a little. */
+.live-workspace nav{gap:22px}
+
+/* The wallet pill as a RainbowKit button. */
+.wallet-button{background:none;border:0;padding:0;cursor:pointer;color:inherit}
+.wallet-button:disabled{cursor:default;opacity:.55}
+.wallet-button:not(:disabled):hover span{text-decoration:underline}
+.wallet-button.wrong-chain{color:var(--red);font-weight:700}
+@media(max-width:720px){.account-controls .wallet-button{display:flex}}
+
+/* Notices above the tree: relay unreachable, no company yet, sign in. */
+.live-notice{border:1px solid #9b8c7470;border-left:3px solid var(--red);background:#e9e3d6;box-shadow:4px 4px 0 #9e725412;padding:16px 20px;margin:0 0 18px;font-size:13px;line-height:1.6;color:var(--ink)}
+.live-notice.warning{border-left-color:#a66f50;background:#eadccb}
+.live-notice>strong{display:block;font:700 13px 'DM Sans',sans-serif;color:var(--red);margin-bottom:4px}
+.live-notice p{margin:4px 0}
+.live-notice a{color:var(--red)}
+.live-notice .parent-link{margin-top:12px}
+.live-draft-root{max-width:520px}
+.live-draft-root>label{margin-top:12px}
+.live-draft-root .form-row{margin-top:8px;align-items:center}
+.live-draft-root .form-hint{margin-top:10px}
+
+/* Detail panel facts. */
+.live-node-actions .info-row b{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;text-align:right;overflow-wrap:anywhere}
+.live-node-actions .info-row a{color:inherit}
+.live-badge{display:inline-block;border:1px solid #89816b;color:#595d43;font:9px 'Space Mono',monospace;text-transform:uppercase;padding:1px 5px;white-space:nowrap}
+
+/* RainbowKit's modals (role="dialog" under [data-rk]; the app's own dialogs are <dialog> elements):
+   keep the page's display h1 (Barlow, uppercase, tight tracking) out of their titles. */
+[data-rk] [role="dialog"] h1{font-family:inherit;line-height:normal;letter-spacing:normal;text-transform:none}
