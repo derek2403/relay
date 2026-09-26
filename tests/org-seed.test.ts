@@ -536,3 +536,18 @@ test("the spec file round-trips through formatSpec (bundles on one line)", () =>
   assert.match(text, /"bundle": \{"keys": \[/);
   assert.ok(!fs.existsSync(specPath("roundtrip")));
 });
+
+test("org/sodalabs.json: every chain grant's gas cap covers an escrow deploy (~845k gas measured on anvil)", () => {
+  const spec = JSON.parse(fs.readFileSync(new URL("../org/sodalabs.json", import.meta.url), "utf8"));
+  const gases: [string, number][] = [];
+  const walk = (node: unknown, path: string) => {
+    if (!node || typeof node !== "object") return;
+    const o = node as Record<string, unknown>;
+    const chain = o.chain as { gas?: string } | undefined;
+    if (chain && typeof chain === "object" && chain.gas !== undefined) gases.push([path, Number(chain.gas)]);
+    for (const [k, v] of Object.entries(o)) if (k !== "chain") walk(v, `${path}.${k}`);
+  };
+  walk(spec, "spec");
+  assert.ok(gases.length >= 3, `found ${gases.length} chain grants`);
+  for (const [where, gas] of gases) assert.ok(gas >= 1_000_000, `${where}: gas ${gas} is below an escrow deploy (844,655)`);
+});

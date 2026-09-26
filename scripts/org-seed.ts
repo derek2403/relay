@@ -37,7 +37,9 @@ import { type PrivateKeyAccount, privateKeyToAccount } from "viem/accounts";
 import { formatError } from "../lib/ens/errors";
 import { tryNormalize } from "../lib/ens/names";
 import { RegistryRoles } from "../lib/ens/roles";
-import { describeBundle } from "../lib/relay/bundle";
+import { parseGrant } from "../lib/chain/grant";
+import { CHAIN_CONFIG_FILE, loadChainWorkspace } from "../lib/chain/config";
+import { RECORD_KEYS, describeBundle } from "../lib/relay/bundle";
 import {
   type Chain,
   DEFAULT_RPC_URL,
@@ -66,6 +68,7 @@ import { registerRoot } from "./lib/org-root";
 import {
   AGENT_DAYS,
   type AliasNode,
+  chainRecordText,
   DAY,
   DEFAULT_ORG,
   GAS,
@@ -360,6 +363,10 @@ async function seed(spec: OrgSpec, file: string, privateKey: Hex, keys: Map<stri
   const aliases = new Map(specAliases(spec).map((a) => [a.name, a]));
   const planned = planSteps(spec);
   const summary = summarizePlan(spec);
+  // Blockchain grants (spec `chain`) name workspace recipients, so they need org/chain.json.
+  const ws = loadChainWorkspace();
+  const withChain = nodes.filter((n) => n.chain);
+  if (withChain.length && !ws) say(`  ! ${CHAIN_CONFIG_FILE} is missing or invalid (npm run chain:setup writes it): skipping the blockchain grants of ${plural(withChain.length, "name")}`);
 
   say(`Seeding ${root} on ENSv2 (Sepolia) from ${rel(file)} · admin ${admin.address} · RPC ${rpcUrl}`);
   say(`  ${namesLine(spec)}; a fresh run sends ${summary.total.txs} transactions (npm run org:seed -- --plan shows them)`);
@@ -533,16 +540,25 @@ async function seed(spec: OrgSpec, file: string, privateKey: Hex, keys: Map<stri
           done: async () => parentIs(await readParent(pub, own()), holderOf(n), n.label),
           tx: () => tx.setParent(own(), holderOf(n), n.label),
         };
-      case "bundle":
+      case "bundle": {
+        /** relay.chain, ending at the name's ENS expiry (stable across re-runs), checked with the relay's own parser. */
+        const chainRecord = async (): Promise<[string, string][]> => {
+          if (!n.chain || !ws) return [];
+          const e = await entryOf(n);
+          const text = chainRecordText(n.chain, e.registered && e.expiry ? e.expiry : renewTarget(now0, n.days), ws.recipients, n.name);
+          if (!parseGrant(text, ws)) throw new UserError(`${n.name}: its chain grant in ${rel(file)} isn't a valid relay.chain record (${text}).`);
+          return [[RECORD_KEYS.chain, text]];
+        };
         return {
           ...base,
-          title: `limits for ${n.name}: ${describeBundle(n.bundle)}${agentKey ? " (+ addr)" : ""}`,
-          done: async () => (await bundleWrites(pub, servingResolver(n), n.name, n.bundle, agentKey)).length === 0,
+          title: `limits for ${n.name}: ${describeBundle(n.bundle)}${n.chain && ws ? " + blockchain grant" : ""}${agentKey ? " (+ addr)" : ""}`,
+          done: async () => (await bundleWrites(pub, servingResolver(n), n.name, n.bundle, agentKey, await chainRecord())).length === 0,
           tx: async () => {
-            const calls = await bundleWrites(pub, servingResolver(n), n.name, n.bundle, agentKey);
+            const calls = await bundleWrites(pub, servingResolver(n), n.name, n.bundle, agentKey, await chainRecord());
             return calls.length ? tx.resolverMulticall(servingResolver(n), calls) : null;
           },
         };
+      }
       case "renew":
         return {
           ...base,

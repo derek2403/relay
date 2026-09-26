@@ -16,6 +16,7 @@ import { privateKeyToAccount } from "viem/accounts";
 
 import { tryNormalize } from "../../lib/ens/names";
 import { type Bundle, PERIODS, PROVIDER_IDS, type Period, type ProviderId, describeBundle, isProviderId } from "../../lib/relay/bundle";
+import { CHAIN_CAPS, CHAIN_PERIODS, type GrantRecord, grantText, parseApprove, toBase } from "./chain-cli";
 import { REPO_ROOT, UserError } from "./ensv2";
 
 export const DAY = 86_400;
@@ -28,7 +29,14 @@ export const AGENT_DAYS = 30;
 
 // --- The spec -------------------------------------------------------------------------------
 
-export type SpecLevel = { label: string; days: number; bundle: Bundle };
+/**
+ * A level's blockchain grant in the spec: the `relay.chain` record without `v` and `exp` (org:seed
+ * sets exp to the name's ENS expiry). `to` may hold workspace recipient names ("supplier"), which
+ * org:seed resolves to addresses through org/chain.json before writing.
+ */
+export type SpecChain = Omit<GrantRecord, "v" | "exp">;
+
+export type SpecLevel = { label: string; days: number; bundle: Bundle; chain?: SpecChain };
 export type SpecSubagent = SpecLevel;
 export type SpecAgent = SpecLevel & { subagents: SpecSubagent[] };
 export type SpecEmployee = SpecLevel & { agents: SpecAgent[] };
@@ -52,7 +60,7 @@ export type OrgSpec = {
   label: string;
   /** What the names were generated from (npm run org:seed -- --regenerate --seed <seed>). */
   seed: string;
-  root: { days: number; bundle: Bundle };
+  root: { days: number; bundle: Bundle; chain?: SpecChain };
   departments: SpecDepartment[];
   /** Non-canonical aliases (hand-added; the generator makes none). */
   aliases?: SpecAlias[];
@@ -68,12 +76,17 @@ export type SeedNode = {
   kind: SeedKind;
   days: number;
   bundle: Bundle;
+  /** Its blockchain grant (spec `chain`), if any. */
+  chain?: SpecChain;
   /** The employee this name belongs to (itself for an employee), else null. */
   employee: string | null;
   /** The agent above a subagent (itself for an agent), else null. */
   agent: string | null;
   children: string[];
 };
+
+/** `{ chain }` when the level has a grant, else nothing (so nodes without one stay as they were). */
+const chainOf = (level: { chain?: SpecChain }) => (level.chain ? { chain: level.chain } : {});
 
 export function flattenSpec(spec: OrgSpec): SeedNode[] {
   const root = `${spec.label}.eth`;
@@ -84,19 +97,19 @@ export function flattenSpec(spec: OrgSpec): SeedNode[] {
     nodes.push(node);
     return node;
   };
-  add({ name: root, label: spec.label, parent: null, kind: "company", days: spec.root.days, bundle: spec.root.bundle, employee: null, agent: null });
+  add({ name: root, label: spec.label, parent: null, kind: "company", days: spec.root.days, bundle: spec.root.bundle, ...chainOf(spec.root), employee: null, agent: null });
   for (const d of spec.departments) {
-    const dept = add({ name: `${d.label}.${root}`, label: d.label, parent: root, kind: "department", days: d.days, bundle: d.bundle, employee: null, agent: null });
+    const dept = add({ name: `${d.label}.${root}`, label: d.label, parent: root, kind: "department", days: d.days, bundle: d.bundle, ...chainOf(d), employee: null, agent: null });
     for (const t of d.teams) {
-      const team = add({ name: `${t.label}.${dept.name}`, label: t.label, parent: dept.name, kind: "team", days: t.days, bundle: t.bundle, employee: null, agent: null });
+      const team = add({ name: `${t.label}.${dept.name}`, label: t.label, parent: dept.name, kind: "team", days: t.days, bundle: t.bundle, ...chainOf(t), employee: null, agent: null });
       for (const e of t.employees) {
         const empName = `${e.label}.${team.name}`;
-        add({ name: empName, label: e.label, parent: team.name, kind: "employee", days: e.days, bundle: e.bundle, employee: empName, agent: null });
+        add({ name: empName, label: e.label, parent: team.name, kind: "employee", days: e.days, bundle: e.bundle, ...chainOf(e), employee: empName, agent: null });
         for (const a of e.agents) {
           const agentName = `${a.label}.${empName}`;
-          add({ name: agentName, label: a.label, parent: empName, kind: "agent", days: a.days, bundle: a.bundle, employee: empName, agent: agentName });
+          add({ name: agentName, label: a.label, parent: empName, kind: "agent", days: a.days, bundle: a.bundle, ...chainOf(a), employee: empName, agent: agentName });
           for (const s of a.subagents) {
-            add({ name: `${s.label}.${agentName}`, label: s.label, parent: agentName, kind: "subagent", days: s.days, bundle: s.bundle, employee: empName, agent: agentName });
+            add({ name: `${s.label}.${agentName}`, label: s.label, parent: agentName, kind: "subagent", days: s.days, bundle: s.bundle, ...chainOf(s), employee: empName, agent: agentName });
           }
         }
       }
@@ -327,6 +340,80 @@ function bundleProblems(b: Bundle | undefined, name: string): string[] {
   return out;
 }
 
+const SPEC_CHAIN_KEYS = ["caps", "net", "contracts", "methods", "to", "max", "limit", "period", "gas", "delegate", "approve"];
+const isAmount = (v: unknown) => typeof v === "string" && (toBase(v) ?? 0n) > 0n;
+const RECIPIENT = /^(0x[0-9a-fA-F]{40}|[a-z][a-z0-9-]{0,31})$/;
+
+/** A spec `chain` that can't become a valid `relay.chain` record (the relay's parseGrant has the last word). */
+export function chainProblems(c: unknown, name: string, bundle: Bundle | undefined): string[] {
+  if (c === undefined) return [];
+  const g = c as Partial<SpecChain> | null;
+  if (!g || typeof g !== "object" || Array.isArray(g)) return [`${name}: chain must be an object like {"caps": ["read"], …}`];
+  const out: string[] = [];
+  const unknown = Object.keys(g).filter((k) => !SPEC_CHAIN_KEYS.includes(k));
+  if (unknown.length) out.push(`${name}: chain has unknown fields ${unknown.join(", ")}`);
+  if (!Array.isArray(g.caps) || !g.caps.length || g.caps.some((x) => !(CHAIN_CAPS as readonly string[]).includes(x))) out.push(`${name}: chain.caps must list some of ${CHAIN_CAPS.join(", ")}`);
+  if (!Array.isArray(g.net) || !g.net.length || g.net.some((x) => x !== "sepolia")) out.push(`${name}: chain.net must be ["sepolia"]`);
+  if (!Array.isArray(g.contracts) || g.contracts.some((x) => !["token", "vault", "escrow"].includes(x))) out.push(`${name}: chain.contracts must list some of token, vault, escrow`);
+  if (!g.methods || typeof g.methods !== "object" || Object.values(g.methods).some((m) => !Array.isArray(m) || m.some((x) => typeof x !== "string" || !/^[A-Za-z_]\w*$/.test(x)))) {
+    out.push(`${name}: chain.methods must map a contract to method names`);
+  }
+  if (g.to !== undefined && (!Array.isArray(g.to) || g.to.some((x) => typeof x !== "string" || !RECIPIENT.test(x)))) out.push(`${name}: chain.to must list addresses or recipient names like "supplier"`);
+  for (const k of ["max", "limit"] as const) if (g[k] !== undefined && !isAmount(g[k])) out.push(`${name}: chain.${k} must be a positive STD amount as a string, like "10"`);
+  if (g.period !== undefined && !(CHAIN_PERIODS as readonly string[]).includes(g.period)) out.push(`${name}: chain.period must be ${CHAIN_PERIODS.join(", ")}`);
+  if (g.gas !== undefined && !(typeof g.gas === "string" && /^[1-9]\d{0,9}$/.test(g.gas))) out.push(`${name}: chain.gas must be a whole number as a string, like "600000"`);
+  if (typeof g.delegate !== "boolean") out.push(`${name}: chain.delegate must be true or false`);
+  try {
+    if (typeof g.approve !== "string" || parseApprove(g.approve) !== g.approve) throw new Error();
+  } catch {
+    out.push(`${name}: chain.approve must be always, never or above:<STD>`);
+  }
+  if (bundle && Array.isArray(bundle.keys) && !bundle.keys.includes("multibaas")) out.push(`${name}: has a chain grant but multibaas isn't in its keys`);
+  return out;
+}
+
+/** A child grant may only narrow its parent's: capabilities, contracts, methods, amounts, gas. */
+export function chainNarrowingProblems(child: SpecChain | undefined, parent: SpecChain | undefined, name: string, parentName: string): string[] {
+  if (!child) return [];
+  if (!parent) return [`${name}: has a chain grant but ${parentName} has none`];
+  const out: string[] = [];
+  if (!parent.delegate) out.push(`${name}: ${parentName}'s chain grant doesn't allow delegation`);
+  const extra = (mine: string[], theirs: string[]) => mine.filter((x) => !theirs.includes(x));
+  const caps = extra(child.caps, parent.caps);
+  if (caps.length) out.push(`${name}: chain caps ${caps.join(", ")} aren't allowed by ${parentName}`);
+  const contracts = extra(child.contracts, parent.contracts);
+  if (contracts.length) out.push(`${name}: chain contracts ${contracts.join(", ")} aren't allowed by ${parentName}`);
+  for (const [k, m] of Object.entries(child.methods)) {
+    const more = extra(m, parent.methods[k] ?? []);
+    if (more.length) out.push(`${name}: chain methods ${k}.${more.join(`, ${k}.`)} aren't allowed by ${parentName}`);
+  }
+  if (child.to && parent.to) {
+    const more = extra(child.to, parent.to);
+    if (more.length) out.push(`${name}: chain recipients ${more.join(", ")} aren't approved by ${parentName}`);
+  }
+  for (const k of ["max", "limit"] as const) {
+    const [a, b] = [child[k], parent[k]];
+    if (b !== undefined && (a === undefined || (toBase(a) ?? 0n) > (toBase(b) ?? 0n))) out.push(`${name}: chain.${k} ${a ?? "missing"}, ${parentName} allows ${b}`);
+  }
+  if (parent.gas !== undefined && (child.gas === undefined || BigInt(child.gas) > BigInt(parent.gas))) out.push(`${name}: chain.gas ${child.gas ?? "missing"}, ${parentName} allows ${parent.gas}`);
+  return out;
+}
+
+/**
+ * The `relay.chain` text org:seed writes for a level: the spec grant, recipient names resolved
+ * through the workspace's named recipients (org/chain.json), ending at `exp` (unix seconds).
+ * Throws a UserError naming an unknown recipient.
+ */
+export function chainRecordText(c: SpecChain, exp: number, recipients: Record<string, string>, name: string): string {
+  const to = c.to?.map((r) => {
+    if (/^0x[0-9a-fA-F]{40}$/.test(r)) return r.toLowerCase();
+    const a = recipients[r];
+    if (!a || !/^0x[0-9a-fA-F]{40}$/.test(a)) throw new UserError(`${name}: chain.to names "${r}", which org/chain.json doesn't list (it has ${Object.keys(recipients).join(", ") || "none"}).`);
+    return a.toLowerCase();
+  });
+  return grantText({ v: 1, ...c, ...(to ? { to } : {}), exp: Math.floor(exp) });
+}
+
 /** A child may only narrow: every key allowed above, and every limit set above set here too, no higher. */
 export function narrowingProblems(child: Bundle, parent: Bundle, name: string, parentName: string): string[] {
   const out: string[] = [];
@@ -355,7 +442,7 @@ export function specProblems(spec: OrgSpec): string[] {
   const people = new Map<string, string>();
   /** Every name of the spec and its kind (for the aliases' checks). */
   const known = new Map<string, SeedKind>();
-  const checkLevel = (level: SpecLevel, name: string, parent: { bundle: Bundle; name: string } | null, siblings: Set<string>, kind: SeedKind) => {
+  const checkLevel = (level: SpecLevel, name: string, parent: { bundle: Bundle; name: string; chain?: SpecChain } | null, siblings: Set<string>, kind: SeedKind) => {
     known.set(name, kind);
     if (!isLabel(level.label)) out.push(`${name}: "${level.label}" is not a normalized ENS label`);
     if (siblings.has(level.label)) out.push(`${name}: the label "${level.label}" is used twice here`);
@@ -364,31 +451,34 @@ export function specProblems(spec: OrgSpec): string[] {
     const problems = bundleProblems(level.bundle, name);
     out.push(...problems);
     if (!problems.length && parent) out.push(...narrowingProblems(level.bundle, parent.bundle, name, parent.name));
+    const chainIssues = chainProblems(level.chain, name, problems.length ? undefined : level.bundle);
+    out.push(...chainIssues);
+    if (!chainIssues.length && parent) out.push(...chainNarrowingProblems(level.chain, parent.chain, name, parent.name));
     if ((kind === "agent" || kind === "subagent") && level.label.includes("relay")) out.push(`${name}: agent names may not contain "relay"`);
   };
-  checkLevel({ label: spec.label, days: spec.root.days, bundle: spec.root.bundle }, root, null, new Set(), "company");
+  checkLevel({ label: spec.label, days: spec.root.days, bundle: spec.root.bundle, ...chainOf(spec.root) }, root, null, new Set(), "company");
   const depts = new Set<string>();
   for (const d of spec.departments) {
     const dn = `${d.label}.${root}`;
-    checkLevel(d, dn, { bundle: spec.root.bundle, name: root }, depts, "department");
+    checkLevel(d, dn, { bundle: spec.root.bundle, name: root, chain: spec.root.chain }, depts, "department");
     const teams = new Set<string>();
     for (const t of d.teams ?? []) {
       const tn = `${t.label}.${dn}`;
-      checkLevel(t, tn, { bundle: d.bundle, name: dn }, teams, "team");
+      checkLevel(t, tn, { bundle: d.bundle, name: dn, chain: d.chain }, teams, "team");
       const employees = new Set<string>();
       for (const e of t.employees ?? []) {
         const en = `${e.label}.${tn}`;
-        checkLevel(e, en, { bundle: t.bundle, name: tn }, employees, "employee");
+        checkLevel(e, en, { bundle: t.bundle, name: tn, chain: t.chain }, employees, "employee");
         if (people.has(e.label) && people.get(e.label) !== en) out.push(`${en}: "${e.label}" is also ${people.get(e.label)} (employee labels are unique in the company)`);
         people.set(e.label, en);
         const agents = new Set<string>();
         for (const a of e.agents ?? []) {
           const an = `${a.label}.${en}`;
-          checkLevel(a, an, { bundle: e.bundle, name: en }, agents, "agent");
+          checkLevel(a, an, { bundle: e.bundle, name: en, chain: e.chain }, agents, "agent");
           const subs = new Set<string>();
           for (const s of a.subagents ?? []) {
             const sn = `${s.label}.${an}`;
-            checkLevel(s, sn, { bundle: a.bundle, name: an }, subs, "subagent");
+            checkLevel(s, sn, { bundle: a.bundle, name: an, chain: a.chain }, subs, "subagent");
             if (s.label === "agent" || s.label === a.label) out.push(`${sn}: "${s.label}" is reserved under ${an} (./relay uses it for the agent itself)`);
           }
         }
@@ -510,7 +600,7 @@ export function formatSpec(spec: OrgSpec): string {
       return `[\n${v.map((x) => `${indent}  ${pretty(x, `${indent}  `)}`).join(",\n")}\n${indent}]`;
     }
     if (v && typeof v === "object") {
-      const lines = Object.entries(v).map(([k, x]) => `${indent}  ${JSON.stringify(k)}: ${k === "bundle" ? bundleJson(x as Bundle) : pretty(x, `${indent}  `)}`);
+      const lines = Object.entries(v).map(([k, x]) => `${indent}  ${JSON.stringify(k)}: ${k === "bundle" ? bundleJson(x as Bundle) : k === "chain" ? inline(x) : pretty(x, `${indent}  `)}`);
       return `{\n${lines.join(",\n")}\n${indent}}`;
     }
     return JSON.stringify(v);
@@ -599,8 +689,8 @@ export type PlannedStep = {
 };
 
 /** Text records a bundle write sets on a new name (plus addr for agents and subagents). */
-export const bundleRecords = (n: Pick<SeedNode, "bundle" | "kind">) =>
-  2 + Object.keys(n.bundle.caps).length + Object.keys(n.bundle.maxes ?? {}).length + (n.kind === "agent" || n.kind === "subagent" ? 1 : 0);
+export const bundleRecords = (n: Pick<SeedNode, "bundle" | "kind" | "chain">) =>
+  2 + Object.keys(n.bundle.caps).length + Object.keys(n.bundle.maxes ?? {}).length + (n.kind === "agent" || n.kind === "subagent" ? 1 : 0) + (n.chain ? 1 : 0);
 
 const gasOf = (op: SeedOp, n: SeedNode) => (op === "bundle" ? GAS.bundleBase + GAS.bundleRecord * bundleRecords(n) : GAS[op]);
 
