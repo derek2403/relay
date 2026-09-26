@@ -158,17 +158,12 @@ test("PAT for apps: relay origin, curl snippet and .env lines", () => {
     patEnv(origin, "codex.derek.acme.eth", "kr1.abc.def", 1_790_000_000),
     [
       "# Keyless Relay PAT for codex.derek.acme.eth · expires 2026-09-21T14:13:20.000Z · https://relay.derek2403.win",
-      "RELAY_BASE_URL=https://relay.derek2403.win/v1",
-      "RELAY_API_KEY=kr1.abc.def",
-      "OPENAI_BASE_URL=https://relay.derek2403.win/v1/openai",
-      "OPENAI_API_KEY=kr1.abc.def",
+      "RELAY_PAT=kr1.abc.def",
     ].join("\n"),
   );
-  assert.deepEqual(
-    patEnvPreview(origin).split("\n").map((l) => l.split("=")[0]),
-    ["RELAY_BASE_URL", "RELAY_API_KEY", "OPENAI_BASE_URL", "OPENAI_API_KEY"],
-  );
-  assert.match(patWeatherCheck, /curl -s "\$RELAY_BASE_URL\/weather\/data\/2\.5\/weather\?q=Tokyo&units=metric"/);
-  assert.match(patWeatherCheck, /-H "Authorization: Bearer \$RELAY_API_KEY"/);
-  assert.doesNotMatch(patWeatherCheck, /appid/, "the OpenWeatherMap key stays on the relay");
+  assert.equal(patEnvPreview(), "RELAY_PAT=kr1…");
+  const check = patWeatherCheck(origin);
+  assert.match(check, /curl -s "https:\/\/relay\.derek2403\.win\/v1\/weather\/data\/2\.5\/weather\?q=Tokyo&units=metric"/);
+  assert.match(check, /-H "Authorization: Bearer \$RELAY_PAT"/);
+  assert.doesNotMatch(check, /appid/, "the OpenWeatherMap key stays on the relay");
 });

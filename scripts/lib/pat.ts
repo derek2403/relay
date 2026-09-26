@@ -116,9 +116,8 @@ const TOKEN_SHAPE = /^kr1\.[A-Za-z0-9_-]+\.0x[0-9a-fA-F]+$/;
 export const isoTime = (sec: number) => new Date(sec * 1000).toISOString().replace(/\.000Z$/, "Z");
 
 /**
- * The only lines `relay pat` prints on stdout, ready to append to an .env file: the relay's
- * OpenAI-compatible base (RELAY_BASE_URL, …/v1/<provider>/…) and the OpenAI SDK's own variables
- * (OPENAI_BASE_URL, OPENAI_API_KEY), both with the PAT.
+ * The only lines `relay pat` prints on stdout, ready to append to an .env file: a comment naming the
+ * relay, then the PAT as RELAY_PAT. The app keeps the relay's URL (<relay>/v1/<provider>/…) itself.
  */
 export function patEnvLines(o: { name: string; base: string; token: string; exp: number }): string[] {
   const base = o.base.replace(/\/+$/, "");
@@ -126,9 +125,6 @@ export function patEnvLines(o: { name: string; base: string; token: string; exp:
   if (!TOKEN_SHAPE.test(o.token)) throw new Error("the signed token has an unexpected shape");
   return [
     `# Keyless Relay PAT for ${o.name} · expires ${isoTime(o.exp)} · ${base}`,
-    `RELAY_BASE_URL=${base}/v1`,
-    `RELAY_API_KEY=${o.token}`,
-    `OPENAI_BASE_URL=${base}/v1/openai`,
-    `OPENAI_API_KEY=${o.token}`,
+    `RELAY_PAT=${o.token}`,
   ];
 }

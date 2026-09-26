@@ -65,7 +65,7 @@
     relay = w.relay ?? "";
     $("who").textContent = w.name
       ? `One PAT for ${w.name} · ${relay} · expires ${new Date(w.expires).toLocaleString()}`
-      : "No PAT in .env yet: run the curl in README.md.";
+      : "No RELAY_PAT in .env yet: run the curl in README.md.";
   });
 
   function el(tag, cls, text) {

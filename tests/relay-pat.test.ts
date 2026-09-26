@@ -109,17 +109,14 @@ test("expiry: the first of the name's expiry, --hours and the relay's limit", ()
   assert.equal(patExpiry({ now: NOW, ensExpiry: NOW + 3600, hours: 1, maxTtlSec: day }).by, "name");
 });
 
-test("output: exactly the five .env lines, the same PAT twice", async () => {
+test("output: exactly two .env lines, a comment and the PAT", async () => {
   const account = privateKeyToAccount(generatePrivateKey());
   const exp = NOW + 7200;
   const token = await createToken(account, { name: NAME, iat: NOW, exp, aud: "https://relay.derek2403.win" });
   const lines = patEnvLines({ name: NAME, base: "https://relay.derek2403.win", token, exp });
   assert.deepEqual(lines, [
     `# Keyless Relay PAT for ${NAME} · expires ${isoTime(exp)} · https://relay.derek2403.win`,
-    "RELAY_BASE_URL=https://relay.derek2403.win/v1",
-    `RELAY_API_KEY=${token}`,
-    "OPENAI_BASE_URL=https://relay.derek2403.win/v1/openai",
-    `OPENAI_API_KEY=${token}`,
+    `RELAY_PAT=${token}`,
   ]);
   assert.equal(isoTime(exp), new Date(exp * 1000).toISOString().replace(".000Z", "Z"));
   assert.match(isoTime(exp), /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
@@ -129,9 +126,9 @@ test("output: exactly the five .env lines, the same PAT twice", async () => {
   const { payload, signer } = await verifyToken(token, NOW + 1, { audiences: ["https://relay.derek2403.win"] });
   assert.equal(signer, account.address);
   assert.deepEqual([payload.name, payload.exp, payload.aud], [NAME, exp, "https://relay.derek2403.win"]);
-  assert.equal(parseToken(lines[2].slice("RELAY_API_KEY=".length)).payload.name, NAME);
+  assert.equal(parseToken(lines[1].slice("RELAY_PAT=".length)).payload.name, NAME);
   // A trailing slash on the base is dropped; a local relay works too.
-  assert.equal(patEnvLines({ name: NAME, base: "http://127.0.0.1:3000/", token, exp })[1], "RELAY_BASE_URL=http://127.0.0.1:3000/v1");
+  assert.match(patEnvLines({ name: NAME, base: "http://127.0.0.1:3000/", token, exp })[0], / · http:\/\/127\.0\.0\.1:3000$/);
 });
 
 test("output: refuses a relay URL or token that would need quoting", async () => {

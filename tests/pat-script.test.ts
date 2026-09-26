@@ -129,7 +129,7 @@ const STUB = `#!/bin/sh
   printf 'RELAY_URL=%s\\n' "$(printenv RELAY_URL || true)"
   printf 'stdin=%s\\n' "$(cat)"
 } >> "$STUB_LOG"
-printf '%s\\n' '# Keyless Relay PAT for stub' 'RELAY_BASE_URL=https://relay.example/v1' 'RELAY_API_KEY=kr1.stub' 'OPENAI_BASE_URL=https://relay.example/v1/openai' 'OPENAI_API_KEY=kr1.stub'
+printf '%s\\n' '# Keyless Relay PAT for stub' 'RELAY_PAT=kr1.stub'
 echo 'signed a PAT' >&2
 `;
 const IMPOSTOR = `#!/bin/sh\necho impostor ran >> "$STUB_LOG"\n`;
@@ -160,7 +160,7 @@ const put = (file: string, text: string) => {
 test("run: the relay on PATH signs it; stdout is only the CLI's lines; RELAY_URL is the relay the script came from", () => {
   const r = run(patScript({ relayUrl: "https://relay.derek2403.win", name: NAME, hours: 12 }), (_home, bin) => put(path.join(bin, "relay"), STUB));
   assert.equal(r.code, 0, r.stderr);
-  assert.equal(r.stdout, "# Keyless Relay PAT for stub\nRELAY_BASE_URL=https://relay.example/v1\nRELAY_API_KEY=kr1.stub\nOPENAI_BASE_URL=https://relay.example/v1/openai\nOPENAI_API_KEY=kr1.stub\n");
+  assert.equal(r.stdout, "# Keyless Relay PAT for stub\nRELAY_PAT=kr1.stub\n");
   assert.equal(r.stderr, "signed a PAT\n");
   assert.equal(r.log, `args: [pat] [--name] [${NAME}] [--hours] [12]\nRELAY_URL=https://relay.derek2403.win\nstdin=\n`);
 });

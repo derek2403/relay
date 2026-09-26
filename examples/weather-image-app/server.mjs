@@ -1,6 +1,7 @@
 // Weather → image, an OpenAI-style app on Keyless Relay.
 //
-// One PAT (a kr1 token for your ENS name, from the relay's /pat curl) pays for all three APIs:
+// One PAT (RELAY_PAT in .env: a kr1 token for your ENS name, from the relay's /pat curl) pays for all
+// three APIs:
 //   the LLM     POST ${RELAY_BASE_URL}/openai/chat/completions     (OpenAI Chat Completions, tool calling)
 //   weather     GET  ${RELAY_BASE_URL}/weather/data/2.5/weather?q=… (OpenWeatherMap)
 //   the image   POST ${RELAY_BASE_URL}/openai/images/generations   (OpenAI Images)
@@ -15,6 +16,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
+/** The relay's OpenAI-style routes (<relay>/v1/<provider>/…). */
+const RELAY_BASE_URL = "https://relay.derek2403.win/v1";
 const MAX_ROUNDS = 6;
 
 /** Settings from .env next to this file (read on every request, so re-running the curl needs no restart). */
@@ -26,10 +29,9 @@ function config() {
       if (m) env[m[1]] = m[2].replace(/^(["'])(.*)\1$/, "$2"); // a later line wins
     }
   } catch {}
-  const base = env.RELAY_BASE_URL || env.OPENAI_BASE_URL?.replace(/\/openai\/?$/, "") || "";
   return {
-    base: base.replace(/\/+$/, ""),
-    key: env.RELAY_API_KEY || env.OPENAI_API_KEY || "",
+    base: RELAY_BASE_URL,
+    key: env.RELAY_PAT || "",
     chatModel: env.CHAT_MODEL || "gpt-5.4-mini",
     imageModel: env.IMAGE_MODEL || "gpt-image-1-mini",
     port: Number(env.PORT) || 5173,
@@ -175,7 +177,7 @@ function whoami(cfg) {
     const { name, exp } = JSON.parse(Buffer.from(cfg.key.split(".")[1], "base64url").toString());
     return { name, expires: new Date(exp * 1000).toISOString(), relay: cfg.base };
   } catch {
-    return { name: null, relay: cfg.base || null };
+    return { name: null, relay: cfg.base };
   }
 }
 
@@ -190,7 +192,7 @@ async function ask(req, res) {
   };
   try {
     const prompt = String(JSON.parse(body || "{}").prompt ?? "").trim();
-    if (!cfg.base || !cfg.key) throw refusal(500, "no PAT", "Put RELAY_BASE_URL and RELAY_API_KEY in examples/weather-image-app/.env (see README.md).");
+    if (!cfg.key) throw refusal(500, "no PAT", "Put RELAY_PAT in examples/weather-image-app/.env (see README.md).");
     if (!prompt) throw refusal(400, "empty prompt", "Type a prompt.");
     await run(cfg, prompt, send);
   } catch (err) {
@@ -221,6 +223,6 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, "127.0.0.1", () => {
   const cfg = config();
   const { name } = whoami(cfg);
-  const who = name ? `PAT for ${name}` : cfg.key ? "the key in .env is not a PAT" : "no PAT in .env yet (see README.md)";
-  console.log(`http://localhost:${PORT}  ·  ${who}${cfg.base ? ` via ${cfg.base}` : ""}`);
+  const who = name ? `PAT for ${name}` : cfg.key ? "the key in .env is not a PAT" : "no RELAY_PAT in .env yet (see README.md)";
+  console.log(`http://localhost:${PORT}  ·  ${who} via ${cfg.base}`);
 });

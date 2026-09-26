@@ -6,7 +6,7 @@
 // relay CLI with the key in RELAY_HOME (~/.relay) that owns the name. The relay never holds or
 // makes it: this script only finds the installed CLI (lib/relay/install-script.ts puts it on PATH)
 // and runs `relay pat --name <name> [--hours N]`, which prints .env lines on stdout
-// (RELAY_BASE_URL, RELAY_API_KEY, OPENAI_BASE_URL, OPENAI_API_KEY) and its messages on stderr.
+// (a comment and RELAY_PAT=kr1…) and its messages on stderr.
 //
 // Everything interpolated is validated first (a strict ENS name, an hour count, a plain origin)
 // and single-quoted; a bad request gets a 400 whose body is a script that only prints the error.
@@ -105,8 +105,7 @@ const SCRIPT = String.raw`#!/bin/sh
 #
 # Runs your installed relay CLI: relay pat --name @@SHOWN_NAME@@@@SHOWN_HOURS@@
 # It signs a token for the name on this machine, with the key in RELAY_HOME (~/.relay) that owns
-# it, and prints RELAY_BASE_URL, RELAY_API_KEY, OPENAI_BASE_URL and OPENAI_API_KEY lines (messages
-# go to stderr). No key comes from the relay, and the token stops working when the name is removed.
+# it, and prints one RELAY_PAT line after a comment (messages go to stderr). No key comes from the relay, and the token stops working when the name is removed.
 #
 # Settings (environment variables, optional):
 #   RELAY_URL   the relay the token is for (default: @@SHOWN_RELAY_URL@@)

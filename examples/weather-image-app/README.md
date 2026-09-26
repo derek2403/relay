@@ -7,9 +7,11 @@ name. The app never holds an OpenAI or OpenWeatherMap key: both live on the rela
 
 | Call | Relay URL |
 |---|---|
-| LLM (Chat Completions, tool calling) | `POST $RELAY_BASE_URL/openai/chat/completions` |
-| Weather (OpenWeatherMap) | `GET $RELAY_BASE_URL/weather/data/2.5/weather?q=Tokyo&units=metric` (the relay adds `appid`) |
-| Image (OpenAI Images) | `POST $RELAY_BASE_URL/openai/images/generations` |
+| LLM (Chat Completions, tool calling) | `POST https://relay.derek2403.win/v1/openai/chat/completions` |
+| Weather (OpenWeatherMap) | `GET https://relay.derek2403.win/v1/weather/data/2.5/weather?q=Tokyo&units=metric` (the relay adds `appid`) |
+| Image (OpenAI Images) | `POST https://relay.derek2403.win/v1/openai/images/generations` |
+
+The relay URL is set in `server.mjs` (`RELAY_BASE_URL`); `.env` only holds the PAT.
 
 No dependencies: Node.js 20 or newer. You need the `relay` CLI with a key that owns your ENS name
 (`relay init`, then your admin adds you). The relay needs `OPENWEATHER_API_KEY`: in its `.env`, or set by the
@@ -29,18 +31,15 @@ root owner on the Providers page (**Weather (OpenWeatherMap)** → **Edit creden
    ```
 3. **Open http://localhost:5173** and click **Ask**.
 
-`.env` then holds these lines (it is gitignored, so it can't be committed):
+`.env` then holds one PAT (it is gitignored, so it can't be committed):
 
 ```sh
 # Keyless Relay PAT for derek.cloudops.dev.sodalabs.eth · expires … · https://relay.derek2403.win
-RELAY_BASE_URL=https://relay.derek2403.win/v1
-RELAY_API_KEY=kr1…
-OPENAI_BASE_URL=https://relay.derek2403.win/v1/openai
-OPENAI_API_KEY=kr1…
+RELAY_PAT=kr1…
 ```
 
-A PAT lasts up to 24 hours (`&hours=N` asks for less). To refresh it, run the curl again: the newest lines
-win, and the app reads `.env` on every request, so it doesn't need a restart.
+A PAT lasts up to 24 hours (`&hours=N` asks for less). To refresh it, run the curl again: the newest line
+wins, and the app reads `.env` on every request, so it doesn't need a restart.
 
 Optional settings in `.env`: `CHAT_MODEL` (default `gpt-5.4-mini`), `IMAGE_MODEL` (default
 `gpt-image-1-mini`) and `PORT` (default 5173). The server listens on 127.0.0.1 only, because anyone who can

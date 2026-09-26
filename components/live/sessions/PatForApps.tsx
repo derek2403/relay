@@ -25,8 +25,8 @@ export function PatForApps({ name, weather }: { name: string; weather: boolean }
   return (
     <>
       <Snippet label="PAT for apps: in your app's folder, on the laptop with the key (~/.relay)" text={patCommand(origin, name)} />
-      <Snippet label="It appends to .env (OpenAI SDKs read the last two)" text={patEnvPreview(origin)} />
-      {weather && <Snippet label="Check it: Tokyo's weather through the relay (no model cost)" text={patWeatherCheck} />}
+      <Snippet label="It appends one line to .env" text={patEnvPreview()} />
+      {weather && <Snippet label="Check it: Tokyo's weather through the relay (no model cost)" text={patWeatherCheck(origin)} />}
       <p className="form-hint">
         The key never leaves the laptop: the relay CLI signs the PAT itself. It lasts {formatTtl(ttl)} at most, never past {name}&apos;s end, and only
         within its limits; run the command again for a fresh one. No relay CLI yet? curl -fsSL {origin}/install | sh

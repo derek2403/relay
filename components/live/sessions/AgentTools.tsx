@@ -88,7 +88,7 @@ export function AgentTools({ agent, agentKey, onForgot }: { agent: AgentInfo; ag
               <Snippet key={s.label} label={s.label} text={s.text} />
             ))}
             {token.origin && (
-              <Snippet label="PAT for apps: paste into your app's .env (OpenAI SDKs read the last two)" text={patEnv(token.origin, agent.name, token.value, token.exp)} />
+              <Snippet label="PAT for apps: paste into your app's .env" text={patEnv(token.origin, agent.name, token.value, token.exp)} />
             )}
           </>
         )}

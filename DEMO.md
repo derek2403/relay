@@ -47,6 +47,7 @@ Needs Derek (Demo 1 steps 1–3).
    cd examples/weather-image-app
    curl -fsSL "https://relay.derek2403.win/pat?name=derek.cloudops.dev.sodalabs.eth" | sh >> .env
    ```
+   Show `.env`: one line, `RELAY_PAT=kr1…`. No OpenAI or weather key.
 2. Start the app and open http://localhost:5173:
    ```sh
    node server.mjs

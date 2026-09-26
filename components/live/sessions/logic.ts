@@ -222,22 +222,19 @@ export const patCommand = (origin: string, name: string) => `curl -fsSL "${origi
 export function patEnv(origin: string, name: string, token: string, exp: number): string {
   return [
     `# Keyless Relay PAT for ${name} · expires ${new Date(exp * 1000).toISOString()} · ${origin}`,
-    `RELAY_BASE_URL=${origin}/v1`,
-    `RELAY_API_KEY=${token}`,
-    `OPENAI_BASE_URL=${origin}/v1/openai`,
-    `OPENAI_API_KEY=${token}`,
+    `RELAY_PAT=${token}`,
   ].join("\n");
 }
 
 /** What `patCommand` appends, with the token elided. */
-export const patEnvPreview = (origin: string) =>
-  [`RELAY_BASE_URL=${origin}/v1`, "RELAY_API_KEY=kr1…", `OPENAI_BASE_URL=${origin}/v1/openai`, "OPENAI_API_KEY=kr1…"].join("\n");
+export const patEnvPreview = () => "RELAY_PAT=kr1…";
 
 /**
  * A call with no model cost that proves the PAT works: Tokyo's current weather (OpenWeatherMap) through the
  * relay's OpenAI-style /v1 routes. The relay adds its OpenWeatherMap key; the app only sends the PAT.
  */
-export const patWeatherCheck = [
-  "set -a; . ./.env; set +a",
-  'curl -s "$RELAY_BASE_URL/weather/data/2.5/weather?q=Tokyo&units=metric" -H "Authorization: Bearer $RELAY_API_KEY"',
-].join("\n");
+export const patWeatherCheck = (origin: string) =>
+  [
+    "set -a; . ./.env; set +a",
+    `curl -s "${origin}/v1/weather/data/2.5/weather?q=Tokyo&units=metric" -H "Authorization: Bearer $RELAY_PAT"`,
+  ].join("\n");
