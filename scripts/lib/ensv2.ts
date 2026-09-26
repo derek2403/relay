@@ -18,7 +18,6 @@ import {
   type TransactionReceipt,
   concat,
   createPublicClient,
-  createWalletClient,
   decodeAbiParameters,
   encodeFunctionData,
   formatEther,
@@ -376,9 +375,32 @@ export type Step = {
   tx: () => Promise<TxCall | null> | TxCall | null;
 };
 
+/**
+ * Public Sepolia nodes a signed transaction is also offered to when the configured RPC refuses it.
+ * Some hosted RPCs reject valid raw transactions (Alchemy answered "Missing or invalid parameters"
+ * to a resolver multicall that estimates and mines fine elsewhere); the hash is the same everywhere.
+ */
+export const BROADCAST_FALLBACK_RPCS = ["https://sepolia.gateway.tenderly.co", DEFAULT_RPC_URL];
+
+/** The node's own words for an RPC failure, e.g. "Missing or invalid parameters (… the node's details …)". */
+export function rpcErrorText(err: unknown): string {
+  const base = formatError(err);
+  let e = err as { details?: string; cause?: unknown } | undefined;
+  for (let depth = 0; e && depth < 5; depth++, e = e.cause as typeof e) {
+    if (e.details && !base.includes(e.details)) return `${base} (${e.details})`;
+  }
+  return base;
+}
+
+/** Nodes allow an EIP-7702 delegated account (e.g. a MetaMask smart account) one pending transaction at a time. */
+const IN_FLIGHT_LIMIT = /in-flight transaction limit/i;
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
 export class Sender {
-  readonly wallet;
   private nonce: number | null = null;
+  private readonly broadcasters: { rpc: string; client: PublicClient }[];
+  /** True when the sender is an EIP-7702 delegated account: it then sends strictly one transaction at a time. */
+  private delegated: boolean | null = null;
 
   /** `log` is called with a step's title once its transaction is mined. */
   constructor(
@@ -386,7 +408,13 @@ export class Sender {
     readonly account: LocalAccount,
     readonly log: Log,
   ) {
-    this.wallet = createWalletClient({ account, chain: sepolia, transport: http(chain.rpc, { timeout: 60_000, retryCount: 2 }) });
+    // Transactions are signed here and sent raw: viem's wallet path first asks the node to fill the
+    // transaction (eth_fillTransaction), one more hosted-RPC call that can fail for no good reason.
+    const rpcs = chain.local ? [chain.rpc] : [...new Set([chain.rpc, ...BROADCAST_FALLBACK_RPCS])];
+    this.broadcasters = rpcs.map((rpc) => ({
+      rpc,
+      client: rpc === chain.rpc ? chain.pub : (createPublicClient({ chain: sepolia, transport: http(rpc, { timeout: 30_000, retryCount: 1 }) }) as PublicClient),
+    }));
   }
 
   get address() {
@@ -404,10 +432,11 @@ export class Sender {
     const gases = await Promise.all(
       items.map(async ({ title, call }) => {
         try {
-          const gas = await pub.estimateGas({ account: this.account, to: call.to, data: call.data, value: call.value });
+          // The address, not the local account: a plain eth_estimateGas (see the constructor).
+          const gas = await pub.estimateGas({ account: this.account.address, to: call.to, data: call.data, value: call.value });
           return gas + gas / 4n + 20_000n;
         } catch (err) {
-          throw new UserError(`${title}: ${formatError(err)}`);
+          throw new UserError(`${title}: ${rpcErrorText(err)}`);
         }
       }),
     );
@@ -429,8 +458,14 @@ export class Sender {
       inflight = [];
     };
 
+    this.delegated ??= ((await pub.getCode({ address: this.address }).catch(() => undefined)) ?? "").toLowerCase().startsWith("0xef0100");
     for (let i = 0; i < items.length; i++) {
       const { title, call } = items[i];
+      if (this.delegated) {
+        // One in flight at a time: wait for the previous transaction and for the node to drop it from its pool.
+        if (inflight.length) await flush();
+        nonce = await this.waitIdle();
+      }
       const cost = gases[i] * fees.maxFeePerGas + (call.value ?? 0n);
       // Nodes refuse queued transactions that together cost more than the balance.
       if (committed + cost > balance && inflight.length) {
@@ -445,20 +480,21 @@ export class Sender {
       }
       let hash: Hex;
       try {
-        hash = await this.wallet.sendTransaction({
-          account: this.account,
-          chain: sepolia,
+        const signed = await this.account.signTransaction({
+          chainId: sepolia.id,
+          type: "eip1559",
           to: call.to,
           data: call.data,
-          value: call.value,
+          value: call.value ?? 0n,
           gas: gases[i],
           nonce,
           maxFeePerGas: fees.maxFeePerGas,
           maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
         });
+        hash = await this.broadcast(signed);
       } catch (err) {
         await flush().catch(() => {});
-        throw new UserError(`${title}: ${formatError(err)}`);
+        throw new UserError(`${title}: ${err instanceof UserError ? err.message : rpcErrorText(err)}`);
       }
       this.nonce = ++nonce;
       committed += cost;
@@ -466,6 +502,47 @@ export class Sender {
     }
     await flush();
     return receipts;
+  }
+
+  /**
+   * Sends a signed transaction to the configured RPC, then to the fallbacks if it refuses. A node
+   * that errors may still have taken it, so the hash is looked up before trying the next one.
+   */
+  private async broadcast(signed: Hex): Promise<Hex> {
+    const hash = keccak256(signed);
+    const refusals: string[] = [];
+    for (const { rpc, client } of this.broadcasters) {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await client.sendRawTransaction({ serializedTransaction: signed });
+          return hash;
+        } catch (err) {
+          if (await this.chain.pub.getTransaction({ hash }).catch(() => null)) return hash;
+          // A delegated account's previous transaction can still count as pending for a few seconds after it is mined.
+          if (IN_FLIGHT_LIMIT.test(rpcErrorText(err)) && attempt < 10) {
+            await sleep(3000 * Math.min(attempt, 4));
+            continue;
+          }
+          refusals.push(`${new URL(rpc).host}: ${rpcErrorText(err)}`);
+          break;
+        }
+      }
+    }
+    throw new UserError(`every RPC refused the transaction. ${refusals.join(" · ")}`);
+  }
+
+  /** Waits until the node has no pending transaction from this account (bounded) and returns the next nonce. */
+  private async waitIdle(): Promise<number> {
+    const { pub } = this.chain;
+    const deadline = Date.now() + 2 * 60_000;
+    for (;;) {
+      const [latest, pending] = await Promise.all([
+        pub.getTransactionCount({ address: this.address, blockTag: "latest" }),
+        pub.getTransactionCount({ address: this.address, blockTag: "pending" }),
+      ]);
+      if (pending <= latest || Date.now() > deadline) return Math.max(latest, this.nonce ?? 0);
+      await sleep(this.chain.local ? 100 : 2000);
+    }
   }
 
   /** Polls for a receipt (viem's waiter can miss an automined transaction on anvil). */
@@ -525,7 +602,7 @@ export type OrgLevel = {
 
 /**
  * mia's key is derived from the admin's key, so only the admin (and tests that
- * have it, like demo:e2e) can sign as her. Her budget is $10 of Codex.
+ * have it) can sign as her. Her budget is $10 of Codex.
  */
 export const miaAccount = (adminKey: Hex) => privateKeyToAccount(keccak256(concat([adminKey, stringToHex("mia")])));
 
