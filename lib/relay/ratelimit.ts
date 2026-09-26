@@ -132,7 +132,7 @@ export function createLimits(): RelayLimits {
   return {
     failures: new ClientLimit([30, 0.5], [300, 5]),
     policy: new ClientLimit([60, 2], [600, 20]),
-    children: new ClientLimit([30, 1], [120, 4]),
+    children: new ClientLimit([60, 2], [240, 8]),
     // One walk serves every caller for a few seconds, so reads are cheap; the global bucket is generous.
     owned: new ClientLimit([20, 0.5], [600, 10]),
     fundChecks: new ClientLimit([10, 0.1], [300, 5]),
