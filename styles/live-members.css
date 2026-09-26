@@ -1,0 +1,16 @@
+/* Live mode: members. */
+.live-member-actions{display:flex;flex-direction:column}
+.live-member-note{font-size:12px;line-height:1.6;color:#746451;border-left:2px solid var(--red);padding:0 0 0 12px;margin:18px 0 0}
+.live-member-labelrow{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.live-member-badge{font:10px 'Space Mono',monospace;padding:3px 6px;border:1px solid #777466;color:#465348;text-transform:lowercase}
+.live-member-badge.registered{color:#6e6458;border-color:#9c907c}
+.live-member-badge.taken{color:var(--red);border-color:var(--red)}
+.live-member-name-input{display:flex;align-items:center;gap:6px}
+.live-member-name-input input{flex:1;min-width:0}
+.live-member-name-input span{font:11px 'Space Mono',monospace;color:#756a5d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55%}
+.live-member-warning{color:var(--red)!important}
+.live-member-cap{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end}
+.live-member-cap>label{display:flex;flex-direction:column;gap:8px;font-size:12px;font-weight:600;margin-top:21px}
+.live-member-address{font:11px 'Space Mono',monospace;color:var(--ink)}
+#liveRemoveDialog form>p:not([class]){font-size:14px;line-height:1.8;color:#776853}
+@media (max-width:520px){#liveAddMemberDialog .form-row{grid-template-columns:1fr}.live-member-name-input{flex-wrap:wrap}.live-member-name-input span{max-width:100%}}
