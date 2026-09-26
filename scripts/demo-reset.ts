@@ -56,6 +56,7 @@ import {
   allReady,
   checkLine,
   demoMember,
+  ESCROW_ALIAS,
   escrowLinks,
   ethText,
   linkedSlots,
@@ -100,6 +101,7 @@ function settings() {
   }
   loadEnvFiles([
     "RELAY_RPC_URL",
+    "RELAY_LOGS_RPC_URL",
     "NEXT_PUBLIC_SEPOLIA_RPC_URL",
     "RELAY_ROOT_NAME",
     "RELAY_PUBLIC_URL",
@@ -133,6 +135,8 @@ function settings() {
     privateKey: privateKeyHex,
     org,
     rpc: envRpc() || DEFAULT_RPC_URL,
+    // Log scans (which names were added) need an RPC without a tiny getLogs range, like the relay's.
+    logsRpc: process.env.RELAY_LOGS_RPC_URL?.trim() || envRpc() || DEFAULT_RPC_URL,
     relay,
     home,
     adminToken: process.env.RELAY_ADMIN_TOKEN?.trim() || "",
@@ -179,7 +183,7 @@ async function main() {
   say("  7. readiness checklist");
 
   const chain = await connect(s.rpc);
-  const reader = createChainReader(s.rpc);
+  const reader = createChainReader(s.rpc, s.logsRpc);
   const round: Round = { root: plan.root, ws: loadChainWorkspace(), chainId: null };
 
   await removeNames(s, admin, plan, chain, reader);
@@ -327,7 +331,12 @@ async function multibaasSteps(s: Settings, round: Round) {
 
   // 4. Escrows.
   try {
-    const links = escrowLinks(await mb.listAddresses(), [ws.token.address, ws.vault.address]);
+    // The address list leaves out what each address is linked to; an escrow alias's details say.
+    const listed = await mb.listAddresses();
+    const detailed = await Promise.all(
+      listed.map(async (a) => (ESCROW_ALIAS.test(a?.alias ?? "") && !a.contracts?.length ? ((await mb.getAddress(a.alias!).catch(() => null)) ?? a) : a)),
+    );
+    const links = escrowLinks(detailed, [ws.token.address, ws.vault.address]);
     if (!links.length) check("no relay escrows linked");
     for (const l of links) {
       for (const label of l.labels) {
