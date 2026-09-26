@@ -1,0 +1,20 @@
+# Keyless Relay contracts. Same compiler settings as ensdomains/contracts-v2@71a3b73.
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+remappings = ["forge-std/=lib/forge-std/src/"]
+solc_version = "0.8.25"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+
+[rpc_endpoints]
+sepolia = "${SEPOLIA_RPC_URL}"
+
+[lint]
+# Intentional in SessionMinter: it rejects a bad record inside its loop, reads each record's
+# selector with bytes4(record) and has no use for multicall's return data.
+exclude_lints = ["require-revert-in-loop", "unsafe-typecast", "unused-return"]
