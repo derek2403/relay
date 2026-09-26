@@ -502,26 +502,27 @@ export function seedKeys(adminKey: Hex, spec: OrgSpec): Map<string, SeedKey> {
 // --- The plan: every step, who signs it, and its gas --------------------------------------------------
 
 /**
- * Gas per call, a little above what fork runs used (./relay login ≈ 1.2M for its 8 calls, a
- * subagent ≈ 0.35M), so employees get enough. Only for --plan and for funding: the real run
- * estimates each transaction before sending it.
+ * Gas per call, about 10% above what a fork run of org/sodalabs.json measured (registry or
+ * resolver deploy 178k, register 141k, setParent 81k, setSubregistry 65k, limits ≈ 60k per text
+ * record, the .eth registration 238k). Only for --plan and for funding: the real run estimates
+ * every transaction before sending it.
  */
 export const GAS = {
-  deployResolver: 260_000,
-  deployRegistry: 240_000,
-  register: 240_000,
-  setSubregistry: 45_000,
-  setResolver: 45_000,
-  setParent: 60_000,
-  renew: 40_000,
-  unregister: 60_000,
-  bundleBase: 35_000,
-  bundleRecord: 30_000,
+  deployResolver: 200_000,
+  deployRegistry: 200_000,
+  register: 170_000,
+  setSubregistry: 75_000,
+  setResolver: 75_000,
+  setParent: 90_000,
+  renew: 45_000,
+  unregister: 70_000,
+  bundleBase: 10_000,
+  bundleRecord: 65_000,
   transfer: 21_000,
   mintUsdc: 70_000,
   approveUsdc: 50_000,
   commit: 50_000,
-  registerEth: 400_000,
+  registerEth: 270_000,
 } as const;
 
 /** Registering <org>.eth: mint MockUSDC, approve, commit, register. */

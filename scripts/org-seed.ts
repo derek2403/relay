@@ -91,7 +91,10 @@ import {
 
 const say = (line = "") => console.log(line);
 const check = (line: string) => say(`  ✓ ${line}`);
-const rel = (file: string) => path.relative(process.cwd(), file) || file;
+const rel = (file: string) => {
+  const r = path.relative(process.cwd(), file);
+  return !r ? file : r.startsWith("..") ? path.resolve(file) : r;
+};
 const fmtEth = (wei: bigint) => {
   const n = Number(formatEther(wei));
   return n === 0 ? "0" : n < 0.0001 ? n.toExponential(2) : n.toFixed(4);
@@ -382,6 +385,11 @@ async function seed(spec: OrgSpec, file: string, privateKey: Hex, keys: Map<stri
   say(`  Admin balance: ${fmtEth(before[0])} ETH`);
   if (before[0] === 0n) throw new UserError(`The admin ${admin.address} has no Sepolia ETH. Fund it first (npm run org:seed -- --plan estimates how much).`);
 
+  const rootEntry = await readEntry(pub, ETH_REGISTRY, org);
+  if (rootEntry.registered && rootEntry.owner && !isAddressEqual(rootEntry.owner, admin.address)) {
+    throw new UserError(`${root} belongs to ${rootEntry.owner}, not the admin ${admin.address}. Pick another label (--label or ORG_LABEL; a new spec gets generated) or run with that wallet's key.`);
+  }
+
   // --- Addresses (all known before anything is deployed: CREATE2) ---
   const adminResolver = await resolverAddress(pub, admin.address);
   const resolvers = new Map<string, Address>([["admin", adminResolver]]);
@@ -421,10 +429,6 @@ async function seed(spec: OrgSpec, file: string, privateKey: Hex, keys: Map<stri
   // --- The company name ---
   say("\nCompany name");
   const created = new Set<string>();
-  const rootEntry = await readEntry(pub, ETH_REGISTRY, org);
-  if (rootEntry.registered && rootEntry.owner && !isAddressEqual(rootEntry.owner, admin.address)) {
-    throw new UserError(`${root} belongs to ${rootEntry.owner}, not the admin ${admin.address}. Pick another label (--label or ORG_LABEL; a new spec gets generated) or run with that wallet's key.`);
-  }
   // Nothing is sent before every admin-owned name is known to be free or already the admin's.
   await Promise.all(nodes.filter((n) => n.parent && (isOrgLevel(n) || n.kind === "employee")).map(assertNotTaken));
   sending = true;
@@ -642,7 +646,7 @@ async function seed(spec: OrgSpec, file: string, privateKey: Hex, keys: Map<stri
   const total = sent.admin + sent.employees;
   say(`\n${total ? `Done: ${total} transactions (admin ${sent.admin}, employees ${sent.employees}).` : "Everything was already set up: 0 transactions."}`);
   say(`  names: ${created.size} created, ${nodes.length - created.size} already there (${nodes.length} in the spec)`);
-  say(`  ETH: ${fmtEth(spent)} spent on gas${funded ? `; ${fmtEth(funded)} of it sent to employees first (they keep what's left)` : ""}; the admin has ${fmtEth(after[0])} left`);
+  say(`  ETH: ${fmtEth(spent)} spent on gas by everyone${funded ? `; the admin sent the employees ${fmtEth(funded)} for theirs (they keep what's left)` : ""}; the admin has ${fmtEth(after[0])} left`);
   if (rateLimited) say(`  ! the RPC answered 429 (rate limited) ${plural(rateLimited, "time")}; a private Sepolia RPC in RELAY_RPC_URL makes this faster`);
   say("");
   for (const line of renderTree(spec, { compact: true })) say(`  ${line}`);
