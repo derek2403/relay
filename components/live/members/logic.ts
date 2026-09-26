@@ -2,7 +2,9 @@
 // No React, no wagmi: tests/live-members.test.ts covers them.
 
 import { tryNormalize } from "@/lib/ens/names";
-import { isNever } from "@/lib/relay/browser";
+import { type BundleDraft, type LevelBundle, isNever, limitsAbove } from "@/lib/relay/browser";
+import type { Period } from "@/lib/relay/bundle";
+import type { ProviderId } from "@/lib/relay/catalog";
 import type { FundResponse } from "@/lib/relay/types";
 
 /** The useRelayNode flags the gates read (a subset, so tests can build them by hand). */
@@ -128,6 +130,52 @@ export function addProblem(f: {
   if (f.planMissing) return "That plan has no limits written yet. Save it in Policies first.";
   return null;
 }
+
+/** One API a preset ticks: `name` for the button, `cap` in dollars, `max` in requests or images (left out = none). */
+export type PresetApi = { id: ProviderId; name: string; cap?: number; max?: number };
+export type MemberPreset = { apis: readonly PresetApi[]; period: Period };
+
+/**
+ * The member the admin usually adds, one click in "Add a member": these APIs ticked, every other
+ * one unticked, the blockchain grant back to the form's default. Label, wallet and duration stay.
+ */
+export const MEMBER_PRESET: MemberPreset = {
+  apis: [
+    { id: "codex", name: "Codex", cap: 2 },
+    { id: "openai-images", name: "Images", max: 3 },
+    { id: "weather", name: "Weather", max: 20 },
+    { id: "multibaas", name: "MultiBaas" },
+  ],
+  period: "month",
+};
+
+/**
+ * The API form a preset fills in. APIs a level above blocks are skipped, and caps or limits over
+ * theirs come down to theirs. `above` as levelsAbove returns it (undefined = nothing above limits
+ * it). Null while the levels above load, or when they allow none of the preset's APIs.
+ */
+export function presetDraft(preset: MemberPreset, above: LevelBundle[] | null | undefined): BundleDraft | null {
+  if (above === null) return null;
+  const draft: BundleDraft = { keys: [], caps: {}, maxes: {}, period: preset.period };
+  for (const api of preset.apis) {
+    const lim = above ? limitsAbove(above, api.id) : null;
+    if (lim?.blockedBy) continue;
+    draft.keys.push(api.id);
+    if (api.cap !== undefined) draft.caps[api.id] = String(Math.min(api.cap, lim?.cap?.value ?? Infinity));
+    if (api.max !== undefined) draft.maxes[api.id] = String(Math.min(api.max, lim?.max?.value ?? Infinity));
+  }
+  return draft.keys.length ? draft : null;
+}
+
+/**
+ * "Codex $2 · Images 3 · Weather 20 · MultiBaas": what presetDraft ticked, with its limits. No-break
+ * spaces keep each API next to its number, so a narrow button wraps between APIs.
+ */
+export const presetLabel = (preset: MemberPreset, draft: BundleDraft) =>
+  preset.apis
+    .filter((a) => draft.keys.includes(a.id))
+    .map((a) => [a.name, draft.caps[a.id] && `$${draft.caps[a.id]}`, draft.maxes[a.id]].filter(Boolean).join(" "))
+    .join(" · ");
 
 /** Plans created in this browser for names under `parent` (plan-<slug>.<parent>). */
 export const plansUnder = (plans: readonly string[], parent: string) => plans.filter((p) => p.endsWith(`.${parent}`));

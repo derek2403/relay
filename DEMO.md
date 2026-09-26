@@ -16,9 +16,9 @@ Before the demo (off stage):
    ```sh
    relay init
    ```
-3. Portal → **Access tree** → select `cloudops.dev.sodalabs.eth` → **Add a member**: label `derek`, paste the
-   address as **Owner wallet**, tick **OpenAI text (Codex)** `$2`, **OpenAI Images** `3`, **Weather** `20`, leave
-   **Blockchain (MultiBaas)** on → **Add** → confirm the 2 wallet prompts.
+3. Portal → **Access tree** → select `cloudops.dev.sodalabs.eth` → **Add a member** → click
+   **Codex $2 · Images 3 · Weather 20 · MultiBaas** (top of API permissions) → label `derek` → paste the address
+   as **Owner wallet** → **Add** → confirm the 2 wallet prompts.
 4. Log in:
    ```sh
    relay login --chain-max 5 --chain-limit 20

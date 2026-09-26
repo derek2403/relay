@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   type GateFlags,
+  MEMBER_PRESET,
   activeStep,
   addProblem,
   capValid,
@@ -15,8 +16,13 @@ import {
   memberLabel,
   planLabel,
   plansUnder,
+  presetDraft,
+  presetLabel,
   subnameSteps,
 } from "../components/live/members/logic";
+import { levelsAbove } from "../lib/live-bundle-editor";
+import { type LevelBundle, bundleFromDraft } from "../lib/relay/browser";
+import type { Bundle } from "../lib/relay/bundle";
 
 const base: GateFlags = {
   connected: true,
@@ -152,6 +158,64 @@ test("subname setup steps and the active one", () => {
   const noResolver = subnameSteps("x", { withResolver: false, resolverDeployed: false, deployed: true, attached: true, parentOk: true });
   assert.equal(noResolver.length, 3);
   assert.equal(activeStep(noResolver), -1);
+});
+
+const level = (name: string, b: Partial<Bundle> & Pick<Bundle, "keys">): LevelBundle => ({ name, bundle: { caps: {}, maxes: {}, period: "month", ...b } });
+const everything = level("acme.eth", { keys: ["claude", "codex", "openai-images", "weather", "multibaas", "github"] });
+// presetLabel keeps each API next to its number with no-break spaces.
+const plain = (label: string) => label.replaceAll(" ", " ");
+
+test("member preset: Codex $2, Images 3, Weather 20, MultiBaas, per month, nothing else", () => {
+  const full = { keys: ["codex", "openai-images", "weather", "multibaas"], caps: { codex: "2" }, maxes: { "openai-images": "3", weather: "20" }, period: "month" };
+  assert.deepEqual(presetDraft(MEMBER_PRESET, [everything]), full);
+  // Nothing above limits it (the company itself, or the levels couldn't be read).
+  assert.deepEqual(presetDraft(MEMBER_PRESET, undefined), full);
+  const label = presetLabel(MEMBER_PRESET, presetDraft(MEMBER_PRESET, [everything])!);
+  assert.equal(plain(label), "Codex $2 · Images 3 · Weather 20 · MultiBaas");
+  // A narrow button wraps only around the dots, never between an API and its number.
+  assert.deepEqual(label.split(" · "), ["Codex $2", "Images 3", "Weather 20", "MultiBaas"]);
+  // What gets written: a valid bundle, catalog order.
+  assert.deepEqual(bundleFromDraft(presetDraft(MEMBER_PRESET, [everything])!), {
+    bundle: { keys: ["codex", "openai-images", "weather", "multibaas"], caps: { codex: 2 }, maxes: { "openai-images": 3, weather: 20 }, period: "month" },
+    error: null,
+  });
+});
+
+test("member preset skips APIs a level above blocks and comes down to their limits", () => {
+  const dept = level("dev.acme.eth", { keys: ["codex", "openai-images", "multibaas"], caps: { codex: 1.5 }, maxes: { "openai-images": 2, codex: 100 } });
+  const d = presetDraft(MEMBER_PRESET, [everything, dept])!;
+  assert.deepEqual(d, { keys: ["codex", "openai-images", "multibaas"], caps: { codex: "1.5" }, maxes: { "openai-images": "2" }, period: "month" });
+  assert.equal(plain(presetLabel(MEMBER_PRESET, d)), "Codex $1.5 · Images 2 · MultiBaas");
+  assert.equal(bundleFromDraft(d).error, null);
+  // A block anywhere above counts, even when the nearest level allows it.
+  const noChain = level("acme.eth", { keys: ["codex", "openai-images", "weather"] });
+  assert.deepEqual(presetDraft(MEMBER_PRESET, [noChain, everything])!.keys, ["codex", "openai-images", "weather"]);
+  // Limits under the preset's stay the preset's.
+  const loose = level("acme.eth", { keys: everything.bundle!.keys, caps: { codex: 50 }, maxes: { weather: 1000 } });
+  assert.deepEqual(presetDraft(MEMBER_PRESET, [loose])!.caps, { codex: "2" });
+  // Tiny limits above: still a valid form.
+  const tiny = level("acme.eth", { keys: everything.bundle!.keys, caps: { codex: 0.05 }, maxes: { "openai-images": 0, weather: 1 } });
+  const t = presetDraft(MEMBER_PRESET, [tiny])!;
+  assert.deepEqual([t.caps, t.maxes], [{ codex: "0.05" }, { "openai-images": "0", weather: "1" }]);
+  assert.equal(bundleFromDraft(t).error, null);
+});
+
+test("member preset follows the dialog's fallback when the levels above couldn't be read", () => {
+  // Add a member passes levelsAbove({ above: undefined on a read error, parent: the parent's own bundle }).
+  const parent = { keys: ["codex", "weather"], caps: { codex: 1 }, maxes: {}, period: "day" } as Bundle;
+  const d = presetDraft(MEMBER_PRESET, levelsAbove({ above: undefined, parent, parentName: "dev.acme.eth" }))!;
+  assert.deepEqual(d, { keys: ["codex", "weather"], caps: { codex: "1" }, maxes: { weather: "20" }, period: "month" });
+  // Nothing known about the parent either: the full preset (the relay still enforces every level).
+  assert.deepEqual(presetDraft(MEMBER_PRESET, levelsAbove({ above: undefined, parent: null }))!.keys, ["codex", "openai-images", "weather", "multibaas"]);
+  // Still loading wins over the parent's bundle.
+  assert.equal(presetDraft(MEMBER_PRESET, levelsAbove({ above: null, parent })), null);
+});
+
+test("member preset: nothing to fill while the levels above load or when they allow none of it", () => {
+  assert.equal(presetDraft(MEMBER_PRESET, null), null);
+  assert.equal(presetDraft(MEMBER_PRESET, [level("acme.eth", { keys: ["github"] })]), null);
+  // A level with no bundle allows nothing (the relay's default deny).
+  assert.equal(presetDraft(MEMBER_PRESET, [everything, { name: "dev.acme.eth", bundle: null }]), null);
 });
 
 test("fund messages", () => {

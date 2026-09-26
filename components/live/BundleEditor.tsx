@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import { ChainGrantEditor, type ChainGrantEditorProps } from "@/components/live/chain/ChainGrantEditor";
 import { Icon } from "@/components/ui/Icon";
 import { type BundleEditorModel, PERIOD_LABELS, bundleEditorModel, levelsAbove, setCap, setMax, setPeriod, toggleKey } from "@/lib/live-bundle-editor";
@@ -25,14 +27,17 @@ export type BundleEditorProps = {
   disabled?: boolean;
   /** Adds the "Blockchain (MultiBaas)" section (the relay.chain grant, written with the bundle). */
   chain?: ChainGrantEditorProps;
+  /** Shown under the legend (e.g. Add a member's one-click fill). */
+  toolbar?: ReactNode;
 };
 
 /** Catalog checkboxes with $ caps (dollarCaps APIs only), count caps (relay.max.*), and the period — SRC BundleEditor semantics. */
-export function BundleEditor({ value, onChange, parent, parentName, above, fixedPeriod, legend = "API permissions", disabled, chain }: BundleEditorProps) {
+export function BundleEditor({ value, onChange, parent, parentName, above, fixedPeriod, legend = "API permissions", disabled, chain, toolbar }: BundleEditorProps) {
   const model: BundleEditorModel = bundleEditorModel(value, levelsAbove({ above, parent, parentName }));
   return (
     <fieldset className="bundle-editor live-bundle" disabled={disabled}>
       <legend>{legend}</legend>
+      {toolbar && <div className="live-bundle-toolbar">{toolbar}</div>}
       {model.loading && <p className="live-bundle-note">Checking what the levels above allow…</p>}
       {model.groups.map((group) => (
         <div key={group.category} className="live-bundle-group">

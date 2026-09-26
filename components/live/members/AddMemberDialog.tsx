@@ -30,7 +30,7 @@ import {
   readBundle,
   relayApi,
 } from "@/lib/relay/browser";
-import { chainRecords } from "@/lib/live-bundle-editor";
+import { PERIOD_LABELS, chainRecords, levelsAbove } from "@/lib/live-bundle-editor";
 import { lineageOf } from "@/lib/live/view";
 import { CHAIN_ID } from "@/lib/wagmi";
 
@@ -41,7 +41,19 @@ import { useLive } from "../LiveContext";
 import { Steps } from "../tx/Steps";
 import { TxButton } from "../tx/TxButton";
 import { TxStatus } from "../tx/TxStatus";
-import { type Fund, addProblem, durationSeconds, fundText, labelBadge, memberLabel, planLabel, shortAddress } from "./logic";
+import {
+  type Fund,
+  MEMBER_PRESET,
+  addProblem,
+  durationSeconds,
+  fundText,
+  labelBadge,
+  memberLabel,
+  planLabel,
+  presetDraft,
+  presetLabel,
+  shortAddress,
+} from "./logic";
 import { AddressLink, DialogHead, usePlansUnder } from "./parts";
 
 type Props = { open: boolean; parent: RelayNode; onClose: () => void };
@@ -100,8 +112,11 @@ function AddMemberForm({
   // A new member starts with nothing ticked: the admin picks what they get (SRC AddMember).
   // The levels above still hide blocked APIs and flag caps over theirs.
   const parentBundle = chain.levels ? (chain.levels[chain.levels.length - 1]?.bundle ?? null) : (parent.bundle?.bundle ?? null);
+  const above = chain.levels ?? (chain.error ? undefined : null);
   const value = draft ?? draftFromBundle(emptyBundle("month"));
   const parsed = bundleFromDraft(value);
+  // One click for the usual member, trimmed to what the levels above allow (hidden while they load).
+  const preset = presetDraft(MEMBER_PRESET, levelsAbove({ above, parent: parentBundle, parentName }));
 
   // Blockchain grant (relay.chain), written with the limits: starts as what the levels above allow.
   const recipients = useChainStatus().data?.recipients ?? {};
@@ -345,8 +360,23 @@ function AddMemberForm({
           onChange={setDraft}
           parent={parentBundle}
           parentName={parentName}
-          above={chain.levels ?? (chain.error ? undefined : null)}
+          above={above}
           chain={lineage.length ? { value: chainValue, onChange: setChainDraft, above: chainAbove, recipients } : undefined}
+          toolbar={
+            preset && (
+              <button
+                type="button"
+                className="secondary"
+                title={`Ticks only these APIs, with these limits ${PERIOD_LABELS[MEMBER_PRESET.period]}`}
+                onClick={() => {
+                  setDraft(preset);
+                  setChainDraft(null);
+                }}
+              >
+                {presetLabel(MEMBER_PRESET, preset)}
+              </button>
+            )
+          }
         />
       )}
       {!plan && addsMultibaas && <div className="form-hint">MultiBaas is added to their APIs so the blockchain grant can be used.</div>}

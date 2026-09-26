@@ -41,6 +41,8 @@
 
 /* BundleEditor */
 .live-bundle{min-width:0}
+.live-bundle-toolbar{margin-top:10px}
+.live-bundle-toolbar button{max-width:100%;padding:7px 10px;font-size:11px;line-height:1.5;text-align:left;white-space:normal;overflow-wrap:anywhere}
 .live-bundle-group{margin-top:6px}
 .live-bundle-category{margin:12px 0 0;font:700 10px 'Space Mono',monospace;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
 .permission-item.live-bundle-row{grid-template-columns:minmax(0,1fr) 92px 132px;padding:8px 0}
