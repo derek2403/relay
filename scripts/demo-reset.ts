@@ -100,6 +100,7 @@ function settings() {
     process.exit(0);
   }
   loadEnvFiles([
+    "ADMIN_PRIVATE_KEY",
     "RELAY_RPC_URL",
     "RELAY_LOGS_RPC_URL",
     "NEXT_PUBLIC_SEPOLIA_RPC_URL",

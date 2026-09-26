@@ -8,7 +8,7 @@ in the repo.
 1. Reset:
    ```sh
    relay logout
-   RELAY_URL=https://relay.derek2403.win ADMIN_PRIVATE_KEY=0x… npm run demo:reset -- --yes
+   RELAY_URL=https://relay.derek2403.win npm run demo:reset -- --yes
    ```
 2. Get an identity and copy the address it prints:
    ```sh

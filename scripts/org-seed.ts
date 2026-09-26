@@ -728,7 +728,7 @@ async function main() {
     say(HELP);
     return;
   }
-  loadEnvFiles(["RELAY_RPC_URL", "NEXT_PUBLIC_SEPOLIA_RPC_URL", "RELAY_ROOT_NAME"]);
+  loadEnvFiles(["RELAY_RPC_URL", "NEXT_PUBLIC_SEPOLIA_RPC_URL", "RELAY_ROOT_NAME", "ADMIN_PRIVATE_KEY"]);
   const planOnly = !!(opts.plan || opts["dry-run"]);
   const gwei = positive(opts.gwei, "--gwei", 2);
   const { spec, file } = loadOrMakeSpec(opts);

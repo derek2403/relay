@@ -52,7 +52,7 @@ const say = (line = "") => console.log(line);
 const check = (line: string) => say(`  ✓ ${line}`);
 
 function settings() {
-  loadEnvFiles(["RELAY_RPC_URL", "NEXT_PUBLIC_SEPOLIA_RPC_URL", "RELAY_ROOT_NAME"]);
+  loadEnvFiles(["RELAY_RPC_URL", "NEXT_PUBLIC_SEPOLIA_RPC_URL", "RELAY_ROOT_NAME", "ADMIN_PRIVATE_KEY"]);
   const key = process.env.ADMIN_PRIVATE_KEY?.trim();
   if (!key) throw new UserError("Set ADMIN_PRIVATE_KEY=0x… (the wallet that will own the company and every level down to the teams).");
   const privateKey = (key.startsWith("0x") ? key : `0x${key}`) as Hex;
