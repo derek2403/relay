@@ -31,7 +31,7 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 
-import { type Address, type Hex, type LocalAccount, formatEther, isHex, parseUnits } from "viem";
+import { type Address, type Hex, type LocalAccount, formatEther, getAddress, isAddress, isAddressEqual, isHex, parseUnits } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 import { type ChainWorkspace, NETWORK, explorerTx, loadChainWorkspace } from "../lib/chain/config";
@@ -170,6 +170,13 @@ type Round = {
 async function main() {
   const s = settings();
   const admin = privateKeyToAccount(s.privateKey);
+  // The teams' registries belong to the company owner: any other key (the funder's, say) can remove nothing.
+  const owner = process.env.RELAY_ROOT_OWNER?.trim();
+  if (owner && isAddress(owner, { strict: false }) && !isAddressEqual(owner, admin.address)) {
+    const funder = s.funderKey ? privateKeyToAccount(s.funderKey).address : null;
+    const which = funder && isAddressEqual(funder, admin.address) ? "the funder's key" : `the key of ${admin.address}`;
+    throw new UserError(`ADMIN_PRIVATE_KEY is ${which}, not the company owner's (${getAddress(owner)}, RELAY_ROOT_OWNER). Use the admin key, the one you use for org:seed.`);
+  }
   const plan = orgPlan(s.org, miaAccount(s.privateKey).address);
   say(`Resetting the demo under ${plan.root} · admin ${admin.address} · relay ${s.relay}${s.plan ? " · plan only (nothing is sent or deleted)" : ""}`);
   say("  1. remove the names demos added under the teams");
