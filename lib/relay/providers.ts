@@ -15,7 +15,7 @@ import { type Address } from "viem";
 
 import { tryNormalize } from "../ens/names";
 import { type ProviderId, isProviderId } from "./bundle";
-import { type Auth, CATALOG, type CatalogEntry, PROVIDER_IDS, catalogEntry } from "./catalog";
+import { type Auth, CATALOG, type CatalogEntry, PROVIDER_IDS, answeredByRelay, catalogEntry } from "./catalog";
 import { applyDnsAlias, upstreamEnvName } from "./config";
 import { isChainReadError } from "./ens";
 import { type LiveChecker, liveCheckerFor } from "./live";
@@ -649,14 +649,17 @@ export async function handleRelayRequest(request: Request, providerParam: string
   if (!decision.allowed) return refuse(403, "denied", decision.reason ?? "denied");
 
   // 4. Provider, path and route. The mock (no upstream) is answered by the relay itself.
-  const local = entry.upstream === null;
+  if (entry.typedOnly) {
+    return refuse(403, "denied", `the relay never forwards requests to ${entry.label} directly: agents use only the blockchain actions delegated to them`);
+  }
+  const local = answeredByRelay(entry);
   const segments = pathSegments(rawPath);
   const base = config.upstreams[provider];
   let upstreamUrl: URL | null = null;
   const route = routeFor(provider, method, segments, config.extraRoutes);
   if (!local) {
     if (!config.isConfigured(provider) || !base) {
-      const why = !base ? `no valid upstream (check ${upstreamEnvName(provider)})` : `no ${provider} key${entry.keyEnv ? ` (${entry.keyEnv})` : ""}`;
+      const why = !base ? `no valid upstream (check ${entry.upstreamEnv ?? upstreamEnvName(provider)})` : `no ${provider} key${entry.keyEnv ? ` (${entry.keyEnv})` : ""}`;
       return refuse(503, "provider not configured", `The relay has ${why}.`);
     }
     try {

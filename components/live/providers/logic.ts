@@ -5,7 +5,7 @@ import { sha256 } from "viem";
 
 import { providerMark } from "@/lib/provider-marks";
 import { canonicalJson, parseTdxQuote, statementHash } from "@/lib/relay/attestation-core";
-import { CATALOG, CATEGORY_LABELS, type CatalogEntry, type Category } from "@/lib/relay/catalog";
+import { CATALOG, CATEGORY_LABELS, type CatalogEntry, type Category, answeredByRelay } from "@/lib/relay/catalog";
 import type { AttestationStatement, CredentialKeyView, CredentialsResponse, Measurements } from "./api";
 
 // --- Catalog cards -----------------------------------------------------------------
@@ -17,7 +17,7 @@ export type PillTone = "live" | "ok" | "idle" | "builtin" | "stored";
 export type Pill = { text: string; tone: PillTone };
 
 /** The relay answers it itself (the test API): no key and no upstream. */
-export const isBuiltIn = (entry: Pick<CatalogEntry, "keyEnv" | "upstream">) => !entry.keyEnv && entry.upstream === null;
+export const isBuiltIn = (entry: Pick<CatalogEntry, "keyEnv" | "upstream" | "upstreamEnv">) => answeredByRelay(entry);
 
 /** A public API the relay would forward to without any key. None in the catalog today: weather (OpenWeatherMap) has one. */
 export const isKeyless = (entry: Pick<CatalogEntry, "keyEnv" | "upstream">) => !entry.keyEnv && entry.upstream !== null;
@@ -36,10 +36,12 @@ export function upstreamHost(upstream: string | null): string {
  * Status pill for a catalog API. Every catalog API is routed by the relay; the pill says
  * whether it has a key. Codex is the relay's main API, so a configured Codex reads "Live".
  */
-export function statusPill(entry: Pick<CatalogEntry, "id" | "keyEnv" | "upstream">, configured: boolean | undefined): Pill {
+export function statusPill(entry: Pick<CatalogEntry, "id" | "keyEnv" | "upstream" | "typedOnly">, configured: boolean | undefined): Pill {
   if (isKeyless(entry)) return { text: "No key needed · routed", tone: "ok" };
   if (!entry.keyEnv) return { text: "Built in · no key needed", tone: "builtin" };
   if (configured === undefined) return { text: "Checking…", tone: "idle" };
+  // MultiBaas: needs its deployment URL and key; never forwarded as-is.
+  if (entry.typedOnly) return configured ? { text: "Connected · URL and key set", tone: "ok" } : { text: "Needs URL and key", tone: "idle" };
   if (!configured) return { text: "Routed · no key", tone: "idle" };
   return entry.id === "codex" ? { text: "Live · routed", tone: "live" } : { text: "Routed · key set", tone: "ok" };
 }

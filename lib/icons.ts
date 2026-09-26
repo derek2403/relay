@@ -28,4 +28,5 @@ export const iconPaths: Record<string, string> = {
   ens: "<path d=\"M16 2L5 15l11 15 11-15zM5 15l11 5 11-5M16 2v18\"/>",
   // Sun half behind a cloud: the sun's arc stops where it meets the cloud's top lobe.
   weather: "<path d=\"M12 3.5v2M3 12.5h2M5.64 6.14l1.41 1.41M18.36 6.14l-1.41 1.41M5.64 18.86l1.41-1.41M12.51 17.48A5 5 0 1 1 16.85 13.72M10.5 28.5H25a4.5 4.5 0 0 0 0-9A6.5 6.5 0 0 0 12.12 19.29A4.75 4.75 0 1 0 10.5 28.5z\"/>",
+  multibaas: "<path d=\"M16 3l11 6.5v13L16 29 5 22.5v-13z\"/><path d=\"M5 9.5L16 16l11-6.5M16 16v13\"/>",
 };

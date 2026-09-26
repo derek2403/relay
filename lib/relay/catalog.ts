@@ -3,7 +3,7 @@
 //
 // Shared by the relay (server) and the admin portal (browser). Pure data.
 
-export type Category = "ai" | "dev" | "marketing" | "business" | "data" | "test";
+export type Category = "ai" | "dev" | "marketing" | "business" | "data" | "blockchain" | "test";
 
 export const CATEGORY_LABELS: Record<Category, string> = {
   ai: "AI",
@@ -11,6 +11,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   marketing: "Marketing",
   business: "Business",
   data: "Data",
+  blockchain: "Blockchain",
   test: "Built in",
 };
 
@@ -39,8 +40,12 @@ export type CatalogEntry = {
   category: Category;
   /** Environment variable holding the real key on the relay; null = no key needed. */
   keyEnv: string | null;
-  /** Upstream origin (and optional base path). null = the relay answers itself (mock). */
+  /** Upstream origin (and optional base path). null = none in the catalog: the relay answers itself (mock), or see upstreamEnv. */
   upstream: string | null;
+  /** Environment variable holding the account's own deployment URL (MultiBaas), when there is no shared upstream. */
+  upstreamEnv?: string;
+  /** Reached only through the relay's own typed tools: never forwarded as-is, whatever the path (RELAY_EXTRA_ROUTES included). */
+  typedOnly?: true;
   auth: Auth;
   /** Headers the upstream needs if the client didn't send them. */
   defaultHeaders?: Record<string, string>;
@@ -218,6 +223,20 @@ export const CATALOG = [
     dollarCaps: false,
     note: "Current weather and forecasts by city: /data/2.5/weather?q=Tokyo&units=metric.",
   },
+  // --- Blockchain --------------------------------------------------------------
+  {
+    id: "multibaas",
+    label: "MultiBaas (Curvegrid)",
+    category: "blockchain",
+    keyEnv: "MULTIBAAS_API_KEY",
+    upstream: null,
+    upstreamEnv: "MULTIBAAS_URL",
+    typedOnly: true,
+    auth: { kind: "bearer" },
+    metering: { kind: "requests" },
+    dollarCaps: false,
+    note: "Contract reads, events, transactions and deploys on Ethereum Sepolia. Agents never get this key or direct MultiBaas access.",
+  },
   // --- Testing ---------------------------------------------------------------
   {
     id: "mock",
@@ -238,6 +257,9 @@ export const PROVIDER_IDS = CATALOG.map((p) => p.id) as ProviderId[];
 export const isProviderId = (id: string): id is ProviderId => (PROVIDER_IDS as string[]).includes(id);
 
 export const catalogEntry = (id: ProviderId): CatalogEntry => CATALOG.find((p) => p.id === id)! as CatalogEntry;
+
+/** True for the built-in test API: no key and no upstream, the relay answers itself. */
+export const answeredByRelay = (entry: Pick<CatalogEntry, "keyEnv" | "upstream" | "upstreamEnv">) => !entry.keyEnv && entry.upstream === null && !entry.upstreamEnv;
 
 /** The dashboard doesn't list the relay's built-in test API; the relay, scripts and tests still use it. */
 export const isListed = (id: string) => id !== "mock";

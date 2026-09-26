@@ -81,10 +81,19 @@ export function checkSecretValue(raw: unknown): string {
   return v;
 }
 
-/** Mailchimp data center: "us21" or "https://us21.api.mailchimp.com" -> "https://us21.api.mailchimp.com". */
+/**
+ * Mailchimp data center: "us21" or "https://us21.api.mailchimp.com" -> "https://us21.api.mailchimp.com".
+ * MultiBaas deployment: "https://<id>.multibaas.com" (a trailing / or /api/v0 is dropped); the relay sends
+ * its MultiBaas key there, so only https on multibaas.com is accepted.
+ */
 export function checkUpstreamValue(env: string, raw: unknown): string {
   if (typeof raw !== "string") throw new CredentialsError(400, "bad value", "value must be a string (or null to clear)");
   const v = raw.trim().toLowerCase();
+  if (env === "MULTIBAAS_URL") {
+    const m = v.match(/^https:\/\/([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.multibaas\.com(?:\/api\/v0)?\/?$/);
+    if (m) return `https://${m[1]}.multibaas.com`;
+    throw new CredentialsError(400, "bad value", "use your deployment's URL, e.g. https://abc123.multibaas.com");
+  }
   if (env === "RELAY_UPSTREAM_MAILCHIMP") {
     const m = v.match(/^(?:https:\/\/)?([a-z]{2}\d{1,3})(?:\.api\.mailchimp\.com\/?)?$/);
     if (m && (v === m[1] || v.includes(".api.mailchimp.com"))) return `https://${m[1]}.api.mailchimp.com`;

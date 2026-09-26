@@ -12,7 +12,7 @@ import { type Address, type LocalAccount, getAddress, isAddress, isHex } from "v
 import { privateKeyToAccount } from "viem/accounts";
 
 import { tryNormalize } from "../ens/names";
-import { CATALOG, PROVIDER_IDS, type ProviderId, catalogEntry } from "./catalog";
+import { CATALOG, PROVIDER_IDS, type ProviderId, answeredByRelay, catalogEntry } from "./catalog";
 import { DEFAULT_MAX_TOKEN_TTL_SEC } from "./token";
 
 type Env = Record<string, string | undefined>;
@@ -165,7 +165,9 @@ export function parseExtraRoutes(raw: string): ExtraRoute[] {
     const m = entry.match(/^([a-z][a-z0-9-]*):(GET|POST|PUT|PATCH|DELETE)\s+(\/[^\s=]*)(?:=(metered|free))?$/i);
     if (!m) continue;
     const provider = m[1].toLowerCase();
-    if (!(PROVIDER_IDS as string[]).includes(provider) || catalogEntry(provider as ProviderId).upstream === null) continue;
+    if (!(PROVIDER_IDS as string[]).includes(provider)) continue;
+    const target = catalogEntry(provider as ProviderId);
+    if (answeredByRelay(target) || target.typedOnly) continue;
     out.push({ provider: provider as ProviderId, method: m[2].toUpperCase(), pattern: m[3].replace(/\/+$/, "") || "/", kind: (m[4]?.toLowerCase() as ExtraRoute["kind"]) ?? "metered" });
   }
   return out;
@@ -249,7 +251,13 @@ export function loadConfig(env: Env = process.env): RelayConfig {
   const railway = clean(env.RELAY_RAILWAY_URL);
   if (railway) upstreams.railway = parseBaseUrl(railway);
   for (const id of PROVIDER_IDS) {
-    if (catalogEntry(id).upstream === null) continue; // answered by the relay itself (mock)
+    const entry = catalogEntry(id);
+    if (entry.upstreamEnv) {
+      // The account's own deployment (MULTIBAAS_URL): no catalog default.
+      upstreams[id] = parseBaseUrl(clean(env[entry.upstreamEnv]));
+      continue;
+    }
+    if (entry.upstream === null) continue; // answered by the relay itself (mock)
     const override = clean(env[upstreamEnvName(id)]);
     if (override) upstreams[id] = parseBaseUrl(override);
   }
@@ -260,7 +268,7 @@ export function loadConfig(env: Env = process.env): RelayConfig {
   };
   const isConfigured = (provider: ProviderId) => {
     const entry = catalogEntry(provider);
-    if (entry.upstream === null) return true;
+    if (answeredByRelay(entry)) return true;
     return !!upstreams[provider] && (entry.keyEnv === null || !!keyFor(provider));
   };
 

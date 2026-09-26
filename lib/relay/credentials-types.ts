@@ -95,7 +95,7 @@ export type NonceResponse = {
 export type SessionResponse = { owner: OwnerSession | null };
 
 /** Readable names for key variables shared by several APIs. */
-const SHARED_LABELS: Record<string, string> = { OPENAI_API_KEY: "OpenAI API key" };
+const SHARED_LABELS: Record<string, string> = { OPENAI_API_KEY: "OpenAI API key", MULTIBAAS_API_KEY: "MultiBaas API key" };
 
 const PLACEHOLDERS: Record<string, string> = {
   ANTHROPIC_API_KEY: "sk-ant-…",
@@ -106,6 +106,7 @@ const PLACEHOLDERS: Record<string, string> = {
   STRIPE_SECRET_KEY: "sk_live_… or rk_live_…",
   SLACK_BOT_TOKEN: "xoxb-…",
   NOTION_TOKEN: "ntn_…",
+  MULTIBAAS_API_KEY: "eyJhbGciOi… (an Administrators key)",
 };
 
 /** Non-secret upstream overrides the owner may set (the value is checked against `pattern`). */
@@ -115,6 +116,12 @@ export const UPSTREAM_SLOTS = [
     api: "mailchimp",
     label: "Mailchimp data center URL",
     placeholder: "https://us21.api.mailchimp.com",
+  },
+  {
+    env: "MULTIBAAS_URL",
+    api: "multibaas",
+    label: "MultiBaas deployment URL",
+    placeholder: "https://<deployment>.multibaas.com",
   },
 ] as const;
 

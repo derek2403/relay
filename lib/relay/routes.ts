@@ -111,6 +111,7 @@ function meteredKind(provider: ProviderId): RouteMatch {
  * each request counting as one.
  */
 export function routeFor(provider: ProviderId, method: string, segments: string[], extra: ExtraRoute[] = []): RouteMatch | null {
+  if (catalogEntry(provider).typedOnly) return null;
   const table = ROUTES[provider];
   if (!table) return { kind: "request", api: null };
   const m = method === "HEAD" ? "GET" : method;
