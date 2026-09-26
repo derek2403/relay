@@ -8,12 +8,23 @@
 // (the nonce's bytes, zero-padded to 32; all zeros without one). The quote's
 // REPORTDATA field must equal it.
 //
+// With RELAY_ATTESTATION_URL the quote comes from a separate attestation
+// service in a dstack CVM (Phala Cloud) instead: the caller's nonce goes into
+// REPORTDATA as is, and the quote covers that service (its compose hash is in
+// MRCONFIGID), not the relay (RemoteAttestationResponse below).
+//
 // All hex strings here are lowercase without 0x, like dstack's.
 
 import { sha256 } from "viem";
 
 /** Phala's TEE Attestation Explorer: paste the quote hex (or upload the binary) to verify it. */
 export const PHALA_VERIFY_URL = "https://proof.t16z.com/";
+
+/** Phala's public verifier API: checks a quote's Intel signature, certificate chain and TCB collateral. */
+export const PHALA_VERIFY_API = "https://cloud-api.phala.network/api/v1/attestations/verify";
+
+/** The explorer page for a quote the verifier has seen (by its checksum). */
+export const phalaReportUrl = (checksum: string) => `${PHALA_VERIFY_URL}reports/${checksum}`;
 
 export type AttestationStatement = {
   v: 1;
@@ -40,6 +51,8 @@ export type TdxMeasurements = {
   teeType: string;
   mrSeam: string;
   mrtd: string;
+  /** 48 bytes. dstack sets it to 0x01 ‖ the app's compose hash (32 bytes) ‖ zero padding. */
+  mrConfigId: string;
   rtmr0: string;
   rtmr1: string;
   rtmr2: string;
@@ -78,6 +91,58 @@ export type AttestationResponse = {
   /** Parsed from the quote, or null when it isn't a TDX quote this parser knows. */
   measurements: TdxMeasurements | null;
 };
+
+/** Phala's public verifier on one quote. */
+export type IntelVerification = {
+  /** Intel's signature, certificate chain and TCB collateral all check out, for this exact quote. */
+  verified: boolean;
+  /** The verifier's id for the quote (its explorer page), or null. */
+  checksum: string | null;
+  reportUrl: string | null;
+  /** ISO 8601, from the verifier. */
+  verifiedAt: string | null;
+  /** Why it isn't verified (the verifier said no, or didn't answer). */
+  error?: string;
+};
+
+/** GET /api/relay/attestation when RELAY_ATTESTATION_URL is set: a quote from the attestation service. */
+export type RemoteAttestationResponse = {
+  source: "remote";
+  /** The attestation service, as its own /info describes it (only composeHash is checked against the quote). */
+  service: { url: string; appId?: string; instanceId?: string; composeHash?: string; osImageHash?: string; image?: string };
+  /** The nonce that went into REPORTDATA (hex, 1–64 bytes). */
+  nonce: string;
+  quote: string;
+  measurements: TdxMeasurements | null;
+  /** null when the verifier wasn't asked. */
+  intel: IntelVerification | null;
+  verifyUrl: string;
+  /** ISO 8601: when the relay fetched the quote. */
+  fetchedAt: string;
+};
+
+export type RemoteChecks = {
+  /** The bytes parse as a TDX quote. */
+  tdx: boolean;
+  /** REPORTDATA starts with the nonce (the rest is zero padding): the quote was made for this request. */
+  nonceInQuote: boolean;
+  /** MRCONFIGID is 0x01 ‖ the service's compose hash; null when the service didn't report one. */
+  composeHashInQuote: boolean | null;
+};
+
+/** The MRCONFIGID dstack sets for a compose hash (hex, no 0x). */
+export const mrConfigIdFor = (composeHash: string) => `01${strip0x(composeHash)}`.padEnd(96, "0");
+
+/** What the quote bytes themselves show about a remote attestation (the browser runs this too). */
+export function remoteChecks(quoteHex: string, nonce: string, composeHash: string | null | undefined): RemoteChecks {
+  const m = parseTdxQuote(quoteHex);
+  const n = strip0x(nonce);
+  return {
+    tdx: !!m,
+    nonceInQuote: !!m && !!n && m.reportData === n.padEnd(128, "0"),
+    composeHashInQuote: !composeHash ? null : !!m && m.mrConfigId === mrConfigIdFor(composeHash),
+  };
+}
 
 /** 503 body when no dstack endpoint answers. */
 export type AttestationUnavailable = { error: string; reason: "no-tee"; hint: string; detail?: string };
@@ -179,6 +244,7 @@ export function parseTdxQuote(quoteHex: string): TdxMeasurements | null {
     tdAttributes: f(120, 8),
     xfam: f(128, 8),
     mrtd: f(136, 48),
+    mrConfigId: f(184, 48),
     rtmr0: f(328, 48),
     rtmr1: f(376, 48),
     rtmr2: f(424, 48),
