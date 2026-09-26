@@ -3,7 +3,7 @@ name: ens-subagents
 description: Delegate research or image generation to a subagent that gets its own ENS name, key and budget under codex.derek.dev.eng.acme.eth. Use it when a task needs research or an image, or when part of the work should run on a separate, smaller budget.
 ---
 
-<!-- Written by ./relay codex from scripts/templates/SKILL.md; edits here are overwritten. -->
+<!-- Written by ./relay codex; edits here are overwritten. -->
 
 # ENS subagents
 

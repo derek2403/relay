@@ -4,7 +4,8 @@
 // mined together (consecutive nonces) instead of waiting a block for each.
 //
 // Relative imports only (no "@/"): the CLI also runs from demo-workspace/,
-// where tsx would not find the repo's path aliases.
+// where tsx would not find the repo's path aliases, and esbuild bundles it
+// (npm run build:cli) into the installable `relay`.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -51,8 +52,11 @@ import {
 import { dnsEncode, labelId, namehash, splitLabels } from "../../lib/ens/names";
 import { type Bundle, PROVIDER_IDS, bundleToRecords } from "../../lib/relay/bundle";
 
+/** This repo. Meaningless inside the bundled CLI (public/cli/relay.mjs), which never uses it. */
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const DEFAULT_RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
+/** Tenderly's public Sepolia gateway: the CLI's default RPC (publicnode rate-limits; this one also takes wide log ranges). */
+export const TENDERLY_RPC_URL = "https://sepolia.gateway.tenderly.co";
 
 export const ETH_REGISTRY = ENSV2_SEPOLIA.ETHRegistry.address;
 export const ETH_REGISTRAR = ENSV2_SEPOLIA.ETHRegistrar.address;
@@ -380,7 +384,14 @@ export type Step = {
  * Some hosted RPCs reject valid raw transactions (Alchemy answered "Missing or invalid parameters"
  * to a resolver multicall that estimates and mines fine elsewhere); the hash is the same everywhere.
  */
-export const BROADCAST_FALLBACK_RPCS = ["https://sepolia.gateway.tenderly.co", DEFAULT_RPC_URL];
+export const BROADCAST_FALLBACK_RPCS = [TENDERLY_RPC_URL, DEFAULT_RPC_URL];
+
+/** The configured RPC first, then each fallback that isn't the same endpoint (trailing slashes and case ignored). */
+export function broadcastRpcs(primary: string, fallbacks: readonly string[] = BROADCAST_FALLBACK_RPCS): string[] {
+  const key = (u: string) => u.trim().replace(/\/+$/, "").toLowerCase();
+  const seen = new Set<string>();
+  return [primary, ...fallbacks].filter((u) => !seen.has(key(u)) && !!seen.add(key(u)));
+}
 
 /** The node's own words for an RPC failure, e.g. "Missing or invalid parameters (… the node's details …)". */
 export function rpcErrorText(err: unknown): string {
@@ -410,7 +421,7 @@ export class Sender {
   ) {
     // Transactions are signed here and sent raw: viem's wallet path first asks the node to fill the
     // transaction (eth_fillTransaction), one more hosted-RPC call that can fail for no good reason.
-    const rpcs = chain.local ? [chain.rpc] : [...new Set([chain.rpc, ...BROADCAST_FALLBACK_RPCS])];
+    const rpcs = chain.local ? [chain.rpc] : broadcastRpcs(chain.rpc);
     this.broadcasters = rpcs.map((rpc) => ({
       rpc,
       client: rpc === chain.rpc ? chain.pub : (createPublicClient({ chain: sepolia, transport: http(rpc, { timeout: 30_000, retryCount: 1 }) }) as PublicClient),

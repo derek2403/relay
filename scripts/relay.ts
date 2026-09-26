@@ -1,4 +1,11 @@
-// ./relay: the user's side of Keyless Relay.
+// relay: the user's side of Keyless Relay.
+//
+// Two ways to run it (scripts/lib/cli-mode.ts):
+// - installed: `curl -fsSL <relay>/install | sh` puts the esbuild bundle of this file
+//   (npm run build:cli → public/cli/relay.mjs) on PATH as `relay`. Codex works in the current
+//   folder (or RELAY_WORKSPACE); nothing is read from a repo.
+// - repo: `./relay` (or `npm run relay --`) runs this source with tsx. It reads the repo's .env.local
+//   and scripts/templates/, and Codex works in demo-workspace/.
 //
 // The user holds one wallet key and an ENS name the admin gave it
 // (derek.dev.eng.acme.eth). `login` gives that name a registry of its own and
@@ -15,16 +22,19 @@
 //   agents/<name>.json   agent and subagent keys
 //   agents/.tx.lock      held while a command sends the user's transactions (one at a time)
 //   codex/               CODEX_HOME for subagent runs (they may run inside Codex's sandbox)
-// Codex (./relay codex) may write only agents/ and codex/, never user.json or config.json.
+//   bin/relay            installed mode only, when Codex can't find `relay` on PATH: a link to this file
+// Codex (relay codex) may write only agents/ and codex/, never user.json or config.json.
 //
-// Settings: --relay / RELAY_URL / config.json (default http://localhost:3000),
-// --rpc / RELAY_RPC_URL / NEXT_PUBLIC_SEPOLIA_RPC_URL / config.json (default: a public Sepolia RPC).
-// The repo's .env.local fills in RELAY_PUBLIC_URL and the RPC variables (and nothing else).
+// Settings: --relay / RELAY_URL / config.json / (installed) the installer's install.json next to
+// this file / (repo) RELAY_PUBLIC_URL, default http://localhost:3000;
+// --rpc / RELAY_RPC_URL / NEXT_PUBLIC_SEPOLIA_RPC_URL / config.json, default Tenderly's public Sepolia gateway.
+// In repo mode the repo's .env.local fills in RELAY_PUBLIC_URL and the RPC variables (and nothing else).
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { type Address, type Hex, formatEther, isAddress, isAddressEqual, isHex, zeroAddress } from "viem";
@@ -37,11 +47,31 @@ import { countUnit } from "../lib/relay/catalog";
 import { DEFAULT_MAX_TOKEN_TTL_SEC, createToken } from "../lib/relay/token";
 import type { FundResponse, LevelView, OwnedResponse, PolicyResponse, StatusResponse } from "../lib/relay/types";
 import {
+  EMBEDDED_TEMPLATES,
+  EMBEDDED_VERSION,
+  MODE,
+  TEMPLATE_FILES,
+  type Templates,
+  codexPath,
+  commandName,
+  installCommand,
+  isGeneratedFile,
+  mergeConfig,
+  projectsTrust,
+  renderTemplate,
+  symlinkOnTheWay,
+  trustedDirs,
+  versionLine,
+  workspaceDir,
+  workspaceProblem,
+  workspaceTargets,
+} from "./lib/cli-mode";
+import {
   type Chain,
-  DEFAULT_RPC_URL,
   REPO_ROOT,
   Sender,
   type Step,
+  TENDERLY_RPC_URL,
   UserError,
   type WalkLevel,
   bundleWrites,
@@ -66,6 +96,11 @@ import {
 
 // --- Output ------------------------------------------------------------------------------
 
+/** How the user runs this CLI: `relay` (installed) or `./relay` (repo). Every message uses it. */
+const CMD = commandName(MODE);
+/** How to reach a relay that doesn't answer. */
+const START_RELAY_HINT = MODE === "repo" ? "Is it running (npm run dev)?" : `Is it running, and is that the right address? (${CMD} config shows it)`;
+
 const out = (line = "") => process.stdout.write(`${line}\n`);
 const info = (line = "") => process.stderr.write(`${line}\n`);
 const done = (line: string) => info(`  ✓ ${line}`);
@@ -73,8 +108,8 @@ const done = (line: string) => info(`  ✓ ${line}`);
 /** The relay (or the chain) says a name above us was removed. Printed exactly, exit 1. */
 class RevokedError extends Error {
   constructor(readonly removed: string) {
-    // Same words as the relay's refusal (lib/relay/policy.ts revokedReason), so Codex and the CLI say one thing.
-    super(`access revoked: ${removed} was removed or expired. Run ./relay login.`);
+    // The relay's refusal words (lib/relay/policy.ts revokedReason), so Codex and the CLI say one thing.
+    super(`access revoked: ${removed} was removed or expired. Run ${CMD} login.`);
   }
 }
 
@@ -114,16 +149,38 @@ function limitsText(b: Bundle): string {
 // Captured before .env.local is read, so a real environment variable beats config.json, which beats .env.local.
 const REAL_ENV_RPC = envRpc();
 const REAL_ENV_RELAY = process.env.RELAY_URL?.trim() || "";
-loadEnvFiles(["RELAY_RPC_URL", "NEXT_PUBLIC_SEPOLIA_RPC_URL", "RELAY_PUBLIC_URL", "RELAY_IMAGE_MODEL", "RELAY_CODEX_MODEL"]);
+// Only from the repo: the bundle has no repo (REPO_ROOT means nothing there) and no .env.local to read.
+if (MODE === "repo") loadEnvFiles(["RELAY_RPC_URL", "NEXT_PUBLIC_SEPOLIA_RPC_URL", "RELAY_PUBLIC_URL", "RELAY_IMAGE_MODEL", "RELAY_CODEX_MODEL"]);
 
 const HOME = path.resolve(process.env.RELAY_HOME?.trim() || path.join(os.homedir(), ".relay"));
-const WORKSPACE = path.join(REPO_ROOT, "demo-workspace");
+/** The real path of an existing file or folder, else null. */
+const realpathOrNull = (p: string) => {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return null;
+  }
+};
+/** This file's real path: the bundle (e.g. ~/.local/share/relay/relay.mjs) once installed. */
+const SELF = (() => {
+  const file = fileURLToPath(import.meta.url);
+  try {
+    return fs.realpathSync(file);
+  } catch {
+    return file;
+  }
+})();
+/** Written next to the bundle by install.sh: { relayUrl } of the relay it came from (survives deleting RELAY_HOME). */
+const INSTALL_DEFAULTS = path.join(path.dirname(SELF), "install.json");
+/** Where Codex works: demo-workspace/ in the repo; the current folder (or RELAY_WORKSPACE) once installed. */
+const workspace = () => workspaceDir({ mode: MODE, repoRoot: REPO_ROOT, env: process.env, cwd: process.cwd() });
 const files = {
   user: path.join(HOME, "user.json"),
   config: path.join(HOME, "config.json"),
   session: path.join(HOME, "session.json"),
   agents: path.join(HOME, "agents"),
   codexHome: path.join(HOME, "codex"),
+  bin: path.join(HOME, "bin"),
 };
 
 type UserKey = { address: Address; privateKey: Hex; createdAt: string };
@@ -148,7 +205,7 @@ function ensureHome() {
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
 /**
- * Runs `fn` while holding RELAY_HOME/agents/.tx.lock, so two ./relay commands
+ * Runs `fn` while holding RELAY_HOME/agents/.tx.lock, so two relay commands
  * (e.g. Codex creating two subagents at once) never send the user's
  * transactions with the same nonce. A lock left by a process that is gone, or
  * older than 10 minutes, is taken over.
@@ -178,8 +235,8 @@ async function withTxLock<T>(fn: () => Promise<T>): Promise<T> {
       fs.rmSync(lock, { force: true });
       continue;
     }
-    if (Date.now() > deadline) throw new UserError(`Another ./relay command is still sending transactions (${lock}). Try again when it finishes.`);
-    if (!told) info("  … waiting for another ./relay command to finish its transactions");
+    if (Date.now() > deadline) throw new UserError(`Another ${CMD} command is still sending transactions (${lock}). Try again when it finishes.`);
+    if (!told) info(`  … waiting for another ${CMD} command to finish its transactions`);
     told = true;
     await sleep(1000);
   }
@@ -214,6 +271,14 @@ function normalizeRelayUrl(raw: string): string {
   return `${url.origin}${url.pathname.replace(/\/+$/, "").replace(/\/api\/relay$/, "")}`;
 }
 
+function normalizeRpcUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    if (/^https?:$/.test(url.protocol)) return url.href.replace(/\/+$/, "");
+  } catch {}
+  throw new UserError(`"${raw}" is not a valid RPC URL (expected e.g. ${TENDERLY_RPC_URL}).`);
+}
+
 type Opts = {
   relay?: string;
   rpc?: string;
@@ -231,18 +296,49 @@ type Opts = {
   force?: boolean;
   all?: boolean;
   help?: boolean;
+  version?: boolean;
+  "if-unset"?: boolean;
 };
 
-const relayUrl = (opts: Opts) =>
-  normalizeRelayUrl(opts.relay || REAL_ENV_RELAY || readConfig().relayUrl || process.env.RELAY_PUBLIC_URL?.trim() || "http://localhost:3000");
-const rpcUrl = (opts: Opts) => opts.rpc || REAL_ENV_RPC || readConfig().rpcUrl || envRpc() || DEFAULT_RPC_URL;
+/** A setting and where it came from (`config` prints both). */
+type Setting = { value: string; source: string };
+
+const firstSet = (candidates: [unknown, string][]): Setting => {
+  for (const [value, source] of candidates) if (typeof value === "string" && value.trim()) return { value: value.trim(), source };
+  throw new Error("no default");
+};
+
+function relaySetting(opts: Opts): Setting {
+  const s = firstSet([
+    [opts.relay, "--relay"],
+    [REAL_ENV_RELAY, "RELAY_URL"],
+    [readConfig().relayUrl, files.config],
+    MODE === "installed"
+      ? [readJson<{ relayUrl?: string }>(INSTALL_DEFAULTS)?.relayUrl, `${INSTALL_DEFAULTS}, from the installer`]
+      : [process.env.RELAY_PUBLIC_URL, "RELAY_PUBLIC_URL in .env.local"],
+    ["http://localhost:3000", "default"],
+  ]);
+  return { value: normalizeRelayUrl(s.value), source: s.source };
+}
+
+const rpcSetting = (opts: Opts): Setting =>
+  firstSet([
+    [opts.rpc, "--rpc"],
+    [REAL_ENV_RPC, "RELAY_RPC_URL / NEXT_PUBLIC_SEPOLIA_RPC_URL"],
+    [readConfig().rpcUrl, files.config],
+    [envRpc(), "RELAY_RPC_URL / NEXT_PUBLIC_SEPOLIA_RPC_URL in .env.local"],
+    [TENDERLY_RPC_URL, "default"],
+  ]);
+
+const relayUrl = (opts: Opts) => relaySetting(opts).value;
+const rpcUrl = (opts: Opts) => rpcSetting(opts).value;
 
 let chainCache: Promise<Chain> | null = null;
 const getChain = (opts: Opts) => (chainCache ??= connect(rpcUrl(opts)));
 
 function userKey(): { key: UserKey; account: PrivateKeyAccount } {
   const key = readJson<UserKey>(files.user);
-  if (!key) throw new UserError(`No key in ${HOME}. Run ./relay init first.`);
+  if (!key) throw new UserError(`No key in ${HOME}. Run ${CMD} init first.`);
   if (!isHex(key.privateKey) || key.privateKey.length !== 66) throw new UserError(`${files.user} has no valid private key.`);
   return { key, account: privateKeyToAccount(key.privateKey) };
 }
@@ -267,7 +363,7 @@ const agentKeyOrNew = (name: string) => loadAgentKey(name) ?? newAgentKey(name);
 
 function requireSession(): Session {
   const s = readJson<Session>(files.session);
-  if (!s?.agent || !s.user) throw new UserError("No agent session. Run ./relay login first.");
+  if (!s?.agent || !s.user) throw new UserError(`No agent session. Run ${CMD} login first.`);
   return s;
 }
 
@@ -293,7 +389,7 @@ async function http(url: string, init: RequestInit = {}, timeoutMs = 60_000): Pr
     res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (err) {
     const why = err instanceof Error && err.name === "TimeoutError" ? "timed out" : shortError(err);
-    throw new UserError(`Could not reach the relay at ${new URL(url).origin} (${why}). Is it running (npm run dev)?`);
+    throw new UserError(`Could not reach the relay at ${new URL(url).origin} (${why}). ${START_RELAY_HINT}`);
   }
   const text = await res.text();
   let json: unknown = null;
@@ -400,15 +496,15 @@ async function checkAlive(chain: Chain, session: Session, name: string, key: Age
     const removedEarly = (scheduled: number | undefined) => !!broken.entry && !!scheduled && broken.entry.expiry < scheduled - 60;
     if (broken.name === session.agent) {
       if (removedEarly(session.expiry)) throw new RevokedError(session.agent);
-      throw new UserError(`The agent session ${session.agent} ended at ${fmtDate(broken.entry?.expiry || session.expiry)}. Run ./relay login.`);
+      throw new UserError(`The agent session ${session.agent} ended at ${fmtDate(broken.entry?.expiry || session.expiry)}. Run ${CMD} login.`);
     }
     throw new UserError(
-      `${broken.name} ${removedEarly(key?.expiry) ? "was removed" : "has expired"}. Create it again: ./relay subagent create ${labelOf(broken.name)}`,
+      `${broken.name} ${removedEarly(key?.expiry) ? "was removed" : "has expired"}. Create it again: ${CMD} subagent create ${labelOf(broken.name)}`,
     );
   }
   const level = levels[levels.length - 1];
   if (key && (!level.entry?.owner || !isAddressEqual(level.entry.owner, key.address))) {
-    throw new UserError(`${name} now belongs to ${level.entry?.owner ?? "nobody"}, not the key in ${HOME}. Run ./relay login.`);
+    throw new UserError(`${name} now belongs to ${level.entry?.owner ?? "nobody"}, not the key in ${HOME}. Run ${CMD} login.`);
   }
   return { levels, level };
 }
@@ -429,7 +525,7 @@ async function resolveActor(opts: Opts): Promise<Actor> {
   const loaded = loadAgentKey(name);
   if (!loaded) {
     throw new UserError(
-      name === agent ? `No key for ${agent} in ${HOME}. Run ./relay login.` : `No subagent ${name} here. Create it: ./relay subagent create ${labelOf(name)}`,
+      name === agent ? `No key for ${agent} in ${HOME}. Run ${CMD} login.` : `No subagent ${name} here. Create it: ${CMD} subagent create ${labelOf(name)}`,
     );
   }
   const chain = await getChain(opts);
@@ -502,7 +598,7 @@ async function ensureGas(chain: Chain, address: Address, userName: string, base:
     info(`  ! no top-up (${reason}); trying with what the wallet has`);
     return;
   }
-  throw new UserError(`Your wallet ${address} has no Sepolia ETH and the relay could not top it up (${reason}). Send it about 0.01 Sepolia ETH, then run ./relay login again.`);
+  throw new UserError(`Your wallet ${address} has no Sepolia ETH and the relay could not top it up (${reason}). Send it about 0.01 Sepolia ETH, then run ${CMD} login again.`);
 }
 
 // --- init ----------------------------------------------------------------------------------------
@@ -737,7 +833,7 @@ async function login(opts: Opts): Promise<Session> {
 async function cmdLogin(opts: Opts) {
   const session = await login(opts);
   if (opts.json) out(JSON.stringify(session));
-  else info("Next: ./relay codex");
+  else info(`Next: ${CMD} codex`);
 }
 
 // --- whoami --------------------------------------------------------------------------------------
@@ -824,7 +920,7 @@ async function cmdWhoami(opts: Opts) {
   if (owned.error) out(`Names     (unknown: ${owned.error})`);
   else out(`Names     ${owned.names.length ? owned.names.map((n) => n.name).join(", ") : "none (send your address to your admin)"}`);
   if (!result.agent) {
-    out("Agent     none (run ./relay login)");
+    out(`Agent     none (run ${CMD} login)`);
     return;
   }
   const a = result.agent;
@@ -841,22 +937,66 @@ async function cmdWhoami(opts: Opts) {
 
 // --- codex ---------------------------------------------------------------------------------------
 
-/** Writes AGENTS.md and the ens-subagents skill into demo-workspace/ from scripts/templates/. */
-function installWorkspace(session: Session, base: string) {
-  const fill = (t: string) => t.replaceAll("{{AGENT}}", session.agent).replaceAll("{{USER}}", session.user).replaceAll("{{RELAY}}", base);
-  const targets: [string, string][] = [
-    [path.join(REPO_ROOT, "scripts", "templates", "AGENTS.md"), path.join(WORKSPACE, "AGENTS.md")],
-    [path.join(REPO_ROOT, "scripts", "templates", "SKILL.md"), path.join(WORKSPACE, ".agents", "skills", "ens-subagents", "SKILL.md")],
-  ];
+/** The folder Codex works in, checked (Codex may write all of it) and created if needed. */
+function codexWorkspace(): string {
+  const ws = workspace();
+  const problem = workspaceProblem({ workspace: ws, home: os.homedir(), relayHome: HOME, cmd: CMD, realpath: realpathOrNull });
+  if (problem) throw new UserError(problem);
+  fs.mkdirSync(ws, { recursive: true });
+  return ws;
+}
+
+/** AGENTS.md and the skill: embedded in the bundle, read from scripts/templates/ in the repo. */
+function loadTemplates(): Templates {
+  if (EMBEDDED_TEMPLATES) return EMBEDDED_TEMPLATES;
+  const read = (file: string) => fs.readFileSync(path.join(REPO_ROOT, "scripts", "templates", file), "utf8");
+  return { agents: read(TEMPLATE_FILES.agents), skill: read(TEMPLATE_FILES.skill) };
+}
+
+const lstatKind = (p: string): "link" | "other" | null => {
+  try {
+    return fs.lstatSync(p).isSymbolicLink() ? "link" : "other";
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Writes AGENTS.md and the ens-subagents skill into the workspace, with this mode's command in them.
+ * A file there that `relay codex` didn't write (e.g. a project's own AGENTS.md) is left alone, and so
+ * is one reached through a symlink (a cloned repo's link could point the write anywhere).
+ */
+function installWorkspace(session: Session, base: string, ws: string) {
+  const templates = loadTemplates();
+  const targets = workspaceTargets(ws);
   let changed = false;
-  for (const [from, to] of targets) {
-    const text = fill(fs.readFileSync(from, "utf8"));
-    if (readText(to) === text) continue;
+  const kept = new Map<keyof Templates, string>();
+  for (const key of ["agents", "skill"] as const) {
+    const to = targets[key];
+    const link = symlinkOnTheWay(ws, to, lstatKind);
+    if (link) {
+      kept.set(key, `${path.relative(ws, link) || link} is a symlink`);
+      continue;
+    }
+    const text = renderTemplate(templates[key], { agent: session.agent, user: session.user, relay: base, cmd: CMD });
+    const now = readText(to);
+    if (now === text) continue;
+    if (now !== null && !isGeneratedFile(now)) {
+      kept.set(key, `${CMD} codex didn't write it (move it away to get the relay's)`);
+      continue;
+    }
     fs.mkdirSync(path.dirname(to), { recursive: true });
-    fs.writeFileSync(to, text);
+    // A new file renamed into place: replaces what is there, never writes through it.
+    const tmp = `${to}.${process.pid}.tmp`;
+    fs.rmSync(tmp, { force: true });
+    fs.writeFileSync(tmp, text, { flag: "wx" });
+    fs.renameSync(tmp, to);
     changed = true;
   }
-  done(`${changed ? "installed" : "checked"} the subagent skill and AGENTS.md in demo-workspace/`);
+  const label: Record<keyof Templates, string> = { skill: "the subagent skill", agents: "AGENTS.md" };
+  const ours = (["skill", "agents"] as const).filter((k) => !kept.has(k)).map((k) => label[k]);
+  if (ours.length) done(`${changed ? "installed" : "checked"} ${ours.join(" and ")} in ${MODE === "repo" ? "demo-workspace/" : ws}`);
+  for (const [key, why] of kept) info(`  ! left ${path.relative(ws, targets[key])} alone: ${why}`);
 }
 
 const readText = (file: string) => {
@@ -867,21 +1007,38 @@ const readText = (file: string) => {
   }
 };
 
+/**
+ * Installed mode: what Codex's shell needs to run `relay` (this file) in the same workspace. PATH gets
+ * the folder of a `relay` that is this file when the first one on PATH isn't (RELAY_HOME/bin/relay,
+ * a link made here, when this process wasn't started through one), and RELAY_WORKSPACE pins the
+ * folder for subagent runs. Codex's sandbox can read the bundle wherever it is installed.
+ */
+function codexRelayEnv(ws: string): Record<string, string> {
+  const { pathEnv, link } = codexPath({ pathEnv: process.env.PATH ?? "", argv1: process.argv[1], self: SELF, fallbackDir: files.bin, realpath: realpathOrNull });
+  if (link) {
+    ensureHome();
+    fs.mkdirSync(files.bin, { recursive: true, mode: 0o700 });
+    fs.rmSync(link, { force: true });
+    fs.symlinkSync(SELF, link);
+  }
+  return { PATH: pathEnv, RELAY_WORKSPACE: ws };
+}
+
 const EXEC_SUBCOMMANDS = new Set(["exec", "e", "review", "resume", "fork"]);
 
 /**
  * Codex flags that route it through the relay as an ENS name. Codex reads the
  * token from KEYLESS_TOKEN (env_key) and sends it as "Authorization: Bearer".
- * - project_root_markers: demo-workspace/ is the project root, so Codex loads
- *   its AGENTS.md and skill, not the repo's.
+ * - project_root_markers: the workspace (it holds .agents/) is the project root,
+ *   so Codex loads its AGENTS.md and skill, not an enclosing repo's.
  * - Inside Codex's own sandbox (CODEX_SANDBOX is set, e.g. a subagent started
  *   by the agent), macOS can't apply a second seatbelt profile, so the inner
  *   Codex runs without one and stays confined by the outer sandbox (which
  *   writes only the workspace and RELAY_HOME's agents/ and codex/; it can
  *   still read every file, keys included, as any macOS sandboxed process can).
  */
-function codexFlags(base: string, opts: { addDirs?: string[]; interactive: boolean; model?: string }): string[] {
-  const provider = `{name="Keyless Relay", base_url=${JSON.stringify(`${base}/api/relay/codex/v1`)}, env_key="KEYLESS_TOKEN", env_key_instructions="Start Codex with ./relay codex", wire_api="responses"}`;
+function codexFlags(base: string, opts: { workspace: string; addDirs?: string[]; interactive: boolean; model?: string }): string[] {
+  const provider = `{name="Keyless Relay", base_url=${JSON.stringify(`${base}/api/relay/codex/v1`)}, env_key="KEYLESS_TOKEN", env_key_instructions=${JSON.stringify(`Start Codex with ${CMD} codex`)}, wire_api="responses"}`;
   const nested = !!process.env.CODEX_SANDBOX;
   return [
     "-c", 'model_provider="keyless"',
@@ -890,7 +1047,7 @@ function codexFlags(base: string, opts: { addDirs?: string[]; interactive: boole
     ...(nested ? ["-s", "danger-full-access"] : ["-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true"]),
     ...(opts.interactive ? ["-a", "on-request"] : []),
     ...(opts.addDirs ?? []).flatMap((d) => ["--add-dir", d]),
-    "-C", WORKSPACE,
+    "-C", opts.workspace,
     ...(opts.model ? ["-m", opts.model] : []),
   ];
 }
@@ -916,12 +1073,14 @@ function runCodex(args: string[], env: Record<string, string>, opts: { stdin?: b
 }
 
 async function cmdCodex(opts: Opts, extra: string[]) {
+  // Checked before login sends anything.
+  const ws = codexWorkspace();
   const session = await login(opts);
   const base = relayUrl(opts);
   const actor = await resolveActor({ ...opts, as: undefined });
   const status = await getStatus(base);
-  if (!status) throw new UserError(`The relay at ${base} is not answering. Start it (npm run dev) and try again.`);
-  installWorkspace(session, base);
+  if (!status) throw new UserError(`The relay at ${base} is not answering. ${START_RELAY_HINT}`);
+  installWorkspace(session, base, ws);
   const { token, exp } = await signToken(actor.account, actor.name, actor.expiry, base, status);
 
   const [first, ...rest] = extra;
@@ -929,15 +1088,20 @@ async function cmdCodex(opts: Opts, extra: string[]) {
   const model = opts.model || process.env.RELAY_CODEX_MODEL?.trim() || undefined;
   // Codex may write subagent keys (agents/) and subagent runs' CODEX_HOME (codex/), not the user's key or settings.
   for (const dir of [files.agents, files.codexHome]) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const flags = codexFlags(base, { addDirs: [files.agents, files.codexHome], interactive: !sub, model });
+  const flags = codexFlags(base, { workspace: ws, addDirs: [files.agents, files.codexHome], interactive: !sub, model });
   if (!sub) {
-    // Trusted for this run only (in memory), so Codex doesn't ask and doesn't write ~/.codex/config.toml.
-    flags.push("-c", `projects={${JSON.stringify(WORKSPACE)}={trust_level="trusted"}, ${JSON.stringify(REPO_ROOT)}={trust_level="trusted"}}`);
+    // Trusted for this run only (in memory), so Codex doesn't ask and doesn't write ~/.codex/config.toml;
+    // installed, only while the folder has no .codex/ of its own (trust would load its config and hooks).
+    const hasProjectConfig = lstatKind(path.join(ws, ".codex")) !== null;
+    const trusted = trustedDirs({ mode: MODE, workspace: ws, repoRoot: REPO_ROOT, hasProjectConfig });
+    if (trusted.length) flags.push("-c", projectsTrust(trusted));
+    else info(`  ! ${ws} has its own .codex/ (project config, hooks, exec policies), so Codex will ask whether you trust this folder`);
   }
   const args = sub ? [sub, ...flags, ...(sub === "exec" || sub === "e" ? ["--skip-git-repo-check"] : []), ...rest] : [...flags, ...extra];
+  const env = { KEYLESS_TOKEN: token, RELAY_HOME: HOME, ...(MODE === "installed" ? codexRelayEnv(ws) : {}) };
   done(`Codex runs as ${actor.name} (token until ${fmtClock(exp)}); it never sees the OpenAI key`);
   info("");
-  process.exitCode = await runCodex(args, { KEYLESS_TOKEN: token, RELAY_HOME: HOME });
+  process.exitCode = await runCodex(args, env);
 }
 
 // --- subagents -------------------------------------------------------------------------------------
@@ -957,18 +1121,18 @@ async function agentContext(opts: Opts) {
   const { account } = userKey();
   const session = requireSession();
   const agentKey = loadAgentKey(session.agent);
-  if (!agentKey) throw new UserError(`No key for ${session.agent} in ${HOME}. Run ./relay login.`);
+  if (!agentKey) throw new UserError(`No key for ${session.agent} in ${HOME}. Run ${CMD} login.`);
   const chain = await getChain(opts);
   const { level } = await checkAlive(chain, session, session.agent, agentKey.key);
   const agentRegistry = level.entry?.subregistry;
-  if (!agentRegistry) throw new UserError(`${session.agent} has no registry for subagents yet. Run ./relay login.`);
+  if (!agentRegistry) throw new UserError(`${session.agent} has no registry for subagents yet. Run ${CMD} login.`);
   const resolver = await resolverAddress(chain.pub, account.address);
   return { account, session, chain, agentRegistry, agentExpiry: level.entry!.expiry, resolver };
 }
 
 function subagentLabel(raw: string | undefined, agent: string): string {
   const label = raw ? tryNormalize(raw) : null;
-  if (!label || label.includes(".")) throw new UserError('Give a subagent label, e.g. ./relay subagent create research');
+  if (!label || label.includes(".")) throw new UserError(`Give a subagent label, e.g. ${CMD} subagent create research`);
   if (label === "agent" || label === labelOf(agent)) throw new UserError(`"${label}" is reserved; pick another label.`);
   return label;
 }
@@ -1073,7 +1237,7 @@ async function cmdSubagentList(opts: Opts) {
     return;
   }
   if (!rows.length) {
-    out(`No subagents under ${session.agent}. Create one: ./relay subagent create research --codex 1 --minutes 20`);
+    out(`No subagents under ${session.agent}. Create one: ${CMD} subagent create research --codex 1 --minutes 20`);
     return;
   }
   for (const r of rows) {
@@ -1100,8 +1264,8 @@ async function cmdSubagentRemove(opts: Opts, rawLabel: string | undefined) {
 
 async function cmdExec(opts: Opts, words: string[]) {
   const task = words.join(" ").trim();
-  if (!opts.as) throw new UserError('Add --as <subagent>, e.g. ./relay exec --as research "Find …"');
-  if (!task) throw new UserError('Give the task in quotes, e.g. ./relay exec --as research "Find …"');
+  if (!opts.as) throw new UserError(`Add --as <subagent>, e.g. ${CMD} exec --as research "Find …"`);
+  if (!task) throw new UserError(`Give the task in quotes, e.g. ${CMD} exec --as research "Find …"`);
   const actor = await resolveActor(opts);
   const session = requireSession();
   const base = relayUrl(opts);
@@ -1114,7 +1278,7 @@ async function cmdExec(opts: Opts, words: string[]) {
         `Do this one task, write your answer as your final message, and don't create subagents.\n\nTask: ${task}`;
   fs.mkdirSync(files.codexHome, { recursive: true, mode: 0o700 });
   const model = opts.model || process.env.RELAY_CODEX_MODEL?.trim() || undefined;
-  const args = ["exec", ...codexFlags(base, { interactive: false, model }), "--skip-git-repo-check", "--ephemeral", prompt];
+  const args = ["exec", ...codexFlags(base, { workspace: codexWorkspace(), interactive: false, model }), "--skip-git-repo-check", "--ephemeral", prompt];
   info(`Running Codex as ${actor.name}`);
   // Its own CODEX_HOME: a subagent started by the agent runs inside the agent's sandbox, where ~/.codex is read-only.
   process.exitCode = await runCodex(args, { KEYLESS_TOKEN: token, CODEX_HOME: files.codexHome, RELAY_HOME: HOME }, { stdin: false });
@@ -1128,7 +1292,7 @@ async function actorBundle(opts: Opts, actor: Actor): Promise<Bundle | null> {
 }
 
 async function cmdImage(opts: Opts) {
-  if (!opts.as) throw new UserError('Add --as <subagent>, e.g. ./relay image --as image --prompt "…" --out header.png');
+  if (!opts.as) throw new UserError(`Add --as <subagent>, e.g. ${CMD} image --as image --prompt "…" --out header.png`);
   const prompt = opts.prompt?.trim();
   if (!prompt) throw new UserError('Add --prompt "<what the image shows>"');
   const size = opts.size ?? "1024x1024";
@@ -1186,7 +1350,7 @@ async function cmdEnv(opts: Opts) {
 function cmdLogout(opts: Opts) {
   if (opts.all) {
     fs.rmSync(HOME, { recursive: true, force: true });
-    info(`Deleted ${HOME} (your key too). Run ./relay init to start over.`);
+    info(`Deleted ${HOME} (your key too). Run ${CMD} init to start over.`);
     return;
   }
   const session = readJson<Session>(files.session);
@@ -1195,29 +1359,120 @@ function cmdLogout(opts: Opts) {
   fs.rmSync(files.agents, { recursive: true, force: true });
   fs.rmSync(files.codexHome, { recursive: true, force: true });
   info(`Logged out${session ? ` of ${session.agent}` : ""}: deleted the session and ${keys} agent key${keys === 1 ? "" : "s"}. Your own key stays in ${files.user}.`);
-  info("The agent's ENS name still exists until it expires; ./relay login replaces it.");
+  info(`The agent's ENS name still exists until it expires; ${CMD} login replaces it.`);
+}
+
+// --- config and version --------------------------------------------------------------------------------
+
+function version(): string | null {
+  if (EMBEDDED_VERSION) return EMBEDDED_VERSION;
+  return readJson<{ version?: string }>(path.join(REPO_ROOT, "package.json"))?.version ?? null;
+}
+
+/** An RPC URL without its path or query, which often hold an API key (…/v2/<key>). */
+function redactUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    return url.pathname.length > 1 || url.search ? `${url.origin}/…` : url.origin;
+  } catch {
+    return "(not a URL)";
+  }
+}
+
+/** Shows the settings commands use (and where each comes from); --relay / --rpc save them in config.json. */
+function cmdConfig(opts: Opts) {
+  const update: Record<string, string | undefined> = {};
+  if (opts.relay !== undefined) update.relayUrl = normalizeRelayUrl(opts.relay);
+  if (opts.rpc !== undefined) update.rpcUrl = normalizeRpcUrl(opts.rpc);
+  if (opts["if-unset"] && !Object.keys(update).length) throw new UserError("--if-unset goes with --relay or --rpc.");
+  if (Object.keys(update).length) {
+    const current = readJson<Record<string, unknown>>(files.config);
+    // A saved value that isn't a valid URL counts as unset, so --if-unset (the installer) replaces it.
+    const valid = (key: string, value: string) => {
+      try {
+        if (key === "relayUrl") normalizeRelayUrl(value);
+        else if (key === "rpcUrl") normalizeRpcUrl(value);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const { config, changed, kept } = mergeConfig(current, update, { ifUnset: opts["if-unset"], valid });
+    if (changed.length) writeSecret(files.config, config);
+    const flag = (key: string) => (key === "relayUrl" ? "--relay" : "--rpc");
+    const shown = (key: string, value: unknown) => (key === "rpcUrl" ? redactUrl(String(value)) : String(value));
+    for (const key of changed) done(`saved ${flag(key).slice(2)} ${shown(key, config[key])} in ${files.config}`);
+    for (const key of kept) {
+      // The relay URL is printed in full (it holds no secret), so the line can be pasted as is.
+      const url = String(update[key]);
+      const use = key === "relayUrl" ? `${CMD} config --relay ${/^[\w.:/@%+=,~-]+$/.test(url) ? url : shellQuote(url)}` : `${CMD} config --rpc <url>`;
+      info(`  ! kept ${flag(key).slice(2)} ${shown(key, current?.[key])} from ${files.config}; to use ${shown(key, update[key])} instead, run: ${use}`);
+    }
+  }
+  const relay = relaySetting({});
+  const rpc = rpcSetting({});
+  const ws = workspace();
+  if (opts.json) {
+    out(JSON.stringify({ relay, rpc: { ...rpc, value: redactUrl(rpc.value) }, home: HOME, workspace: ws, mode: MODE, version: version() }, null, 2));
+    return;
+  }
+  const wsSource =
+    MODE === "repo"
+      ? `where ${CMD} codex runs Codex`
+      : process.env.RELAY_WORKSPACE?.trim()
+        ? `RELAY_WORKSPACE, where ${CMD} codex runs Codex`
+        : `the current folder, where ${CMD} codex runs Codex (RELAY_WORKSPACE changes it)`;
+  out(`Relay      ${relay.value} · ${relay.source}`);
+  out(`RPC        ${redactUrl(rpc.value)} · ${rpc.source}`);
+  out(`Home       ${HOME}`);
+  out(`Workspace  ${ws} · ${wsSource}`);
+  out(`Version    ${versionLine(MODE, version())}`);
 }
 
 // --- Main ----------------------------------------------------------------------------------------------
 
-const HELP = `Keyless Relay: use APIs with your ENS name instead of API keys.
-
-  ./relay init [--relay URL]         Create your key and print your address (send it to your admin)
-  ./relay whoami [--json]            Your address, names, balance, agent and subagents with spend
-  ./relay login [--name N]           Set up your agent codex.<your name> (Codex $5, 2 images, 8 h)
-        [--codex USD] [--images N] [--hours H] [--force]
-  ./relay codex [-- <codex args>]    Log in if needed, then start Codex through the relay
-                                     (./relay codex exec "…" runs codex exec the same way)
-  ./relay subagent create <label> [--codex USD] [--images N] [--minutes M]
-  ./relay subagent list [--json]
-  ./relay subagent remove <label>
-  ./relay exec --as <label> "<task>"               Run codex exec as a subagent
-  ./relay image --as <label> --prompt "…" [--out file.png] [--size 1024x1024]
-  ./relay token [--as <label>]       Print a relay token (for the agent, or a subagent)
-  ./relay env [--as <label>]         Print export lines (KEYLESS_TOKEN, OPENAI_BASE_URL, OPENAI_API_KEY)
-  ./relay logout [--all]             Delete the session and agent keys (--all: your key too)
-
-Options: --relay URL (or RELAY_URL), --rpc URL (or RELAY_RPC_URL). Files live in ${HOME} (RELAY_HOME).`;
+function help(): string {
+  // [usage after the command name, what it does]; a row without usage continues the one above.
+  const rows: [string, string?][] = [
+    ["init [--relay URL]", "Create your key and print your address (send it to your admin)"],
+    ["whoami [--json]", "Your address, names, balance, agent and subagents with spend"],
+    ["login [--name N]", "Set up your agent codex.<your name> (Codex $5, 2 images, 8 h)"],
+    ["", "      [--codex USD] [--images N] [--hours H] [--force]"],
+    ["codex [-- <codex args>]", "Log in if needed, then start Codex through the relay"],
+    ["", `(${CMD} codex exec "…" runs codex exec the same way)`],
+    ["subagent create <label> [--codex USD] [--images N] [--minutes M]"],
+    ["subagent list [--json]"],
+    ["subagent remove <label>"],
+    ['exec --as <label> "<task>"', "Run codex exec as a subagent"],
+    ['image --as <label> --prompt "…" [--out file.png] [--size 1024x1024]'],
+    ["token [--as <label>]", "Print a relay token (for the agent, or a subagent)"],
+    ["env [--as <label>]", "Print export lines (KEYLESS_TOKEN, OPENAI_BASE_URL, OPENAI_API_KEY)"],
+    ["logout [--all]", "Delete the session and agent keys (--all: your key too)"],
+    ["config [--relay URL] [--rpc URL]", "Show the relay and RPC in use; with flags, save them"],
+    ["version", "Print the version"],
+  ];
+  const width = 32;
+  const lines = rows.map(([usage, what = ""]) => {
+    if (!usage) return `  ${" ".repeat(CMD.length + 1)}${what.startsWith(" ") ? what : `${" ".repeat(width + 1)}${what}`}`;
+    return what ? `  ${CMD} ${usage.padEnd(width)} ${what}` : `  ${CMD} ${usage}`;
+  });
+  let relay = "<relay URL>";
+  try {
+    relay = relayUrl({});
+  } catch {}
+  const where = MODE === "repo" ? "demo-workspace/" : "the current folder (or RELAY_WORKSPACE)";
+  return [
+    "Keyless Relay: use APIs with your ENS name instead of API keys.",
+    "",
+    ...lines,
+    "",
+    `Options: --relay URL (or RELAY_URL), --rpc URL (or RELAY_RPC_URL). Files live in ${HOME} (RELAY_HOME).`,
+    `${CMD} codex runs Codex in ${where}.`,
+    MODE === "installed"
+      ? `Update: re-run the installer: ${installCommand(relay)}`
+      : `Install it as a \`relay\` command: ${installCommand(relay)} (the relay runs npm run build:cli)`,
+  ].join("\n");
+}
 
 // Flags that take a value, so the command can be found before parsing (everything after "codex" is Codex's).
 const VALUE_FLAGS = new Set(["--relay", "--rpc", "--name", "--as", "--hours", "--minutes", "--codex", "--images", "--prompt", "--out", "-o", "--size", "--model", "-m"]);
@@ -1229,7 +1484,7 @@ async function main() {
   let i = 0;
   while (i < argv.length && argv[i].startsWith("-") && argv[i] !== "--") i += VALUE_FLAGS.has(argv[i]) ? 2 : 1;
   const codex = argv[i] === "codex";
-  // Our own login flags may also come right after "codex" (./relay codex --hours 2 exec "…").
+  // Our own login flags may also come right after "codex" (relay codex --hours 2 exec "…").
   let j = i + 1;
   while (codex && CODEX_OWN_FLAGS.has(argv[j]?.split("=")[0])) j += argv[j].includes("=") || argv[j] === "--force" ? 1 : 2;
   const own = codex ? [...argv.slice(0, i + 1), ...argv.slice(i + 1, j)] : argv;
@@ -1255,10 +1510,12 @@ async function main() {
         force: { type: "boolean" },
         all: { type: "boolean" },
         help: { type: "boolean", short: "h" },
+        version: { type: "boolean" },
+        "if-unset": { type: "boolean" },
       },
     }) as { values: Opts; positionals: string[] };
   } catch (err) {
-    throw new UserError(`${(err instanceof Error ? err.message : String(err)).replace(/\.+$/, "")}. See ./relay help`);
+    throw new UserError(`${(err instanceof Error ? err.message : String(err)).replace(/\.+$/, "")}. See ${CMD} help`);
   }
   const { values: opts, positionals } = parsed;
   if (codex) {
@@ -1266,8 +1523,12 @@ async function main() {
     return cmdCodex(opts, extra[0] === "--" ? extra.slice(1) : extra);
   }
   const [command, ...rest] = positionals;
+  if (opts.version || command === "version") {
+    out(versionLine(MODE, version()));
+    return;
+  }
   if (!command || command === "help" || opts.help) {
-    out(HELP);
+    out(help());
     return;
   }
   if (command === "exec") return cmdExec(opts, rest);
@@ -1281,11 +1542,11 @@ async function main() {
       return cmdLogin(opts);
     case "subagent": {
       const [action, label, ...more] = rest;
-      if (more.length) throw new UserError(`Unexpected "${more[0]}". See ./relay help`);
+      if (more.length) throw new UserError(`Unexpected "${more[0]}". See ${CMD} help`);
       if (action === "create") return cmdSubagentCreate(opts, label);
       if (action === "list" || action === "ls") return cmdSubagentList(opts);
       if (action === "remove" || action === "rm") return cmdSubagentRemove(opts, label);
-      throw new UserError("Use: ./relay subagent create|list|remove");
+      throw new UserError(`Use: ${CMD} subagent create|list|remove`);
     }
     case "image":
       return cmdImage(opts);
@@ -1295,8 +1556,10 @@ async function main() {
       return cmdEnv(opts);
     case "logout":
       return cmdLogout(opts);
+    case "config":
+      return cmdConfig(opts);
     default:
-      throw new UserError(`Unknown command "${command}". See ./relay help`);
+      throw new UserError(`Unknown command "${command}". See ${CMD} help`);
   }
 }
 
