@@ -1,0 +1,13 @@
+/* Account controls and activity belong to the access workspace. */
+.account-controls{margin-left:auto;display:flex;align-items:center;gap:18px}
+.account-controls .wallet{display:flex;align-items:center;font:11px 'Space Mono',monospace;color:var(--ink)}
+.inline-activity{margin-top:35px}
+.inline-activity .section-heading{color:var(--red)}
+.inline-activity .section-heading h2{margin:0;font-size:29px}
+.inline-activity .section-heading .subtle{color:var(--muted)}
+.graph-scroll.is-fitted{overflow:hidden;display:flex;justify-content:center;align-items:center}
+.graph-scroll.is-fitted .graph{margin:auto;flex:none}
+@media(max-width:1100px){.sidebar{flex-wrap:wrap;height:auto;min-height:91px;padding-top:15px;padding-bottom:15px}nav{position:static;transform:none;margin-left:0}.account-controls{order:3;gap:10px}.account-controls .wallet{font-size:10px}}
+@media(max-width:720px){.account-controls{width:100%;justify-content:space-between;border-top:1px solid var(--line);padding-top:12px}.sidebar nav{margin-left:auto}.inline-activity .section-heading{display:block}.inline-activity .section-heading .subtle{display:block;margin-top:8px}}
+.add-provider{background:transparent;border:1px solid #60644055;color:var(--red);padding:3px 7px;font-size:11px;margin-left:6px;white-space:nowrap}
+.metric:has(.add-provider) .metric-icon{display:none}

@@ -1,0 +1,18 @@
+/* Full-viewport comet backdrop behind the complete workspace. */
+#comets{position:fixed;inset:0;width:100vw;height:100vh!important;z-index:0;pointer-events:none;opacity:.3;mix-blend-mode:multiply}
+.app{position:relative;z-index:1}
+.sidebar{background:#e3dfd5e8}
+.metrics{background:#ded9cce8}
+.tree-shell{background:#e8e3d8e8}
+.graph-panel{background-color:#e6e1d6c4}
+.detail-panel{background:#dbd4c5ef}
+@media(prefers-reduced-motion:reduce){#comets{opacity:.15}}
+/* Stronger comet presence across the workspace. */
+#comets{opacity:.85}
+.tree-shell{background:#e8e3d8b3}
+.graph-panel{background-color:#e6e1d64d}
+.metrics{background:#ded9ccd9}
+@media(prefers-reduced-motion:reduce){#comets{opacity:.4}}
+/* Centered, quiet cascade with a low outward split. */
+#comets{opacity:.3}
+@media(prefers-reduced-motion:reduce){#comets{opacity:.15}}

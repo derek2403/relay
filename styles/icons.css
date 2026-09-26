@@ -1,0 +1,30 @@
+/* Unified outlined icon family; original drawings inspired by EMONO. */
+.ui-icon{width:20px;height:20px;display:inline-block;vertical-align:middle;flex:none}
+.brandmark{display:flex;align-items:center}
+.brandmark .ui-icon{width:37px;height:37px;stroke-width:2}
+.org-icon .ui-icon{width:23px;height:23px}
+.metric-icon .ui-icon{width:20px;height:20px}
+.node-icon,.node-icon.agent,.node-icon.subagent,.node-icon.company{border:0;background:transparent;color:inherit;border-radius:0;width:27px;height:27px}
+.node-icon .ui-icon{width:26px;height:26px;stroke-width:1.7}
+.node-top{gap:8px}
+.detail-icon{width:57px;height:57px;border:0;border-radius:0;background:transparent;margin-bottom:14px}
+.detail-icon .ui-icon{width:52px;height:52px;stroke-width:1.35}
+.provider-logo{border:0;background:transparent;width:26px;height:26px}
+.provider-logo .ui-icon{width:23px;height:23px}
+.provider-mini{display:inline-flex;gap:10px;letter-spacing:0}
+.provider-mini .ui-icon{width:18px;height:18px}
+.icon-button{display:inline-grid;place-items:center}
+.icon-button .ui-icon,.zoom .ui-icon{width:17px;height:17px}
+.tree-symbol{display:flex}
+.tree-symbol .ui-icon{width:24px;height:24px}
+.wallet>.ui-icon{width:16px;height:16px}
+.primary>span{display:inline-flex;vertical-align:middle}
+.primary .ui-icon{width:18px;height:18px}
+.detail-button .ui-icon{width:15px;height:15px;margin-right:5px}
+.allowed .ui-icon{width:13px;height:13px}
+.inherited-note>.ui-icon{width:16px;height:16px;margin-right:4px}
+.tree-bottom .ui-icon{width:16px;height:16px}
+.ens-mark .ui-icon{width:19px;height:19px}
+.activity-row>span>.ui-icon{width:26px;height:26px}
+.provider-card h2 .provider-logo{width:36px;height:36px}
+.provider-card h2 .ui-icon{width:30px;height:30px}
