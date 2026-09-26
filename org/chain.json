@@ -1,0 +1,57 @@
+{
+  "v": 1,
+  "network": {
+    "name": "sepolia",
+    "chainId": 11155111,
+    "mbChain": "ethereum",
+    "explorer": "https://sepolia.etherscan.io"
+  },
+  "token": {
+    "address": "0x219bfF215855BDACb72aD747d6d343B1271b48F9",
+    "label": "relay-token",
+    "symbol": "STD",
+    "name": "Soda Test Dollar",
+    "decimals": 18
+  },
+  "vault": {
+    "address": "0xD78b2C8CC860BdC1d8A95Be791ccb89B5eFBc576",
+    "label": "relay-vault",
+    "owner": "0x31777694F7b90b635B1F3B786f5D24be7651BE7B",
+    "deployBlock": 11788553
+  },
+  "signer": "0x8076AE8b234d54f5Eb8e73E2E6b514835a376FA0",
+  "templates": {
+    "escrow": {
+      "label": "relay-escrow",
+      "version": "1.0",
+      "bytecodeHash": "0xaa3756d7596f672fbec14274d3100bb33c63cc954adaf76c5437796c0ea8e70b",
+      "abiHash": "0x5c37a11c4b1df6bffbb4d3ddc2696625a837d611fcde46d688540406459f461e",
+      "networks": [
+        "sepolia"
+      ]
+    }
+  },
+  "recipients": {
+    "supplier": "0xDf09F8157eC93b362DDEe2BFb52E0Fd306938B9c",
+    "contractor": "0x2c23c5da403B303cDf500412f68A5E1A67e157d0"
+  },
+  "monitor": {
+    "largeTransfer": "50"
+  },
+  "seed": {
+    "txs": [
+      {
+        "what": "12 STD to the supplier (approved)",
+        "hash": "0x1f87230068153453844e1ec5d0d70a1881301723863ddf5ac97a5e4fcc114655"
+      },
+      {
+        "what": "7 STD to the contractor (approved)",
+        "hash": "0xd7acc87a3e201a9e9f67e7ea8b9497c53010aed1d06871a99d326795fcbdb431"
+      },
+      {
+        "what": "250 STD to an unapproved address (large, flagged)",
+        "hash": "0x2a4d98f0e9e44a3522174c3525bfb3f4364bb044df26851324e43c208b4859df"
+      }
+    ]
+  }
+}
