@@ -25,8 +25,8 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      # APP_DOMAIN serves the relay API and /install; UI_DOMAIN serves the same app for the web UI.
-      - traefik.http.routers.relay-backend.rule=Host(`${APP_DOMAIN}`) || Host(`${UI_DOMAIN}`)
+      # One hostname serves the web UI, the relay API (/api/relay/...) and the CLI installer (/install).
+      - traefik.http.routers.relay-backend.rule=Host(`${APP_DOMAIN}`)
       - traefik.http.routers.relay-backend.entrypoints=web
       - traefik.http.services.relay-backend.loadbalancer.server.port=3000
 
