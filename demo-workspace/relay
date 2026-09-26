@@ -1,0 +1,7 @@
+#!/bin/sh
+# Keyless Relay CLI for Codex in this workspace (runs ../scripts/relay.ts). Run ./relay help.
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ -x "$root/node_modules/.bin/tsx" ]; then
+  exec "$root/node_modules/.bin/tsx" "$root/scripts/relay.ts" "$@"
+fi
+exec npx tsx "$root/scripts/relay.ts" "$@"
