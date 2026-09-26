@@ -240,6 +240,16 @@ function AddMemberForm({
 
   const submit = (e: FormEvent) => e.preventDefault();
 
+  // Until the resolver check answers, say so (the deploy offer is only for wallets that have none).
+  if (!my.deployed && (my.loading || !my.resolver)) {
+    return (
+      <form onSubmit={submit}>
+        <DialogHead title="Add a member" onClose={onClose} />
+        <p className="form-hint">{live.address ? "Checking your resolver…" : "Connect a wallet to add a member."}</p>
+      </form>
+    );
+  }
+
   if (!my.deployed) {
     const deploy = async () => {
       await my.deploy();
