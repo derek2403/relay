@@ -1,36 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Relay — Next.js
 
-## Getting Started
+Next.js App Router + React, CSS, inline SVG icons.
 
-First, run the development server:
+## Run
 
-```bash
+```sh
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:4174. For a production build, run `npm run build`, then `npm start`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `app/layout.jsx`: page metadata, fonts and global layout.
+- `app/page.jsx`: server route.
+- `components/RelayWorkspace.jsx`: client component with the existing dashboard scaffold.
+- `lib/workspace.js`: isolated graph, delegation, search, revocation controller. Mounted through a React effect with timer and listener cleanup.
+- `app/globals.css`: current reference-inspired visual design.
+- `public/icon.svg`: application icon.
 
-## Learn More
+The interaction controller deliberately preserves the tested vanilla-JavaScript behavior during this migration. It is not yet a React-state rewrite. No external application backend is added: all wallet addresses, provider connections and spend are demo data. Changes reset on reload. No ENS transaction or API request is made. Optional experimental browser WebMCP tools from the standalone prototype are omitted.
 
-To learn more about Next.js, take a look at the following resources:
+## Updated functional demo
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- Pre-generated company, three departments and six teams, each populated with a user, agent and subagent.
+- Team member form with full wallet validation and inherited API selection.
+- Dollar budgets, image counts, monthly organizational budgets and session agent budgets.
+- Edit permissions and expiry, simulate CLI-created Codex agents and research/image subagents.
+- Simulated usage charges every ancestor; exhausted budgets and image counts refuse further requests.
+- Cascading removal and expiry, fresh identity counters after re-registration, organization-preserving reset.
+- Department focus, fitted tree, integrated activity and honest catalog/key status.
+- Khaki provider badges on entity cards: up to three circles, with an overflow list that closes on scroll, outside click or Escape.
+- Add-provider form and reconciled mock usage/session metrics.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Run `npm test` for permission-model checks.
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+No ENS or MetaMask integration, relay HTTP endpoints, actual CLI, gas funding, private-key handling, live provider calls, stream cutoff or external event polling has been implemented. The buttons simulate those demo outcomes in browser memory. All changes reset on reload. Provider availability is a catalog, not proof of connected credentials. Role selection is only a preview, not access control. Real backend enforcement is still required.
