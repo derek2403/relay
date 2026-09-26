@@ -70,8 +70,8 @@ Needs Derek (Demo 1 steps 1–3).
 
 ## Demo 4: A blockchain agent through MultiBaas
 
-Needs Derek logged in (Demo 1 steps 1–4). Within 3 days before the demo, refresh the treasury history:
-`ADMIN_PRIVATE_KEY=0x… npm run chain:setup -- --reseed`
+Needs Derek logged in (Demo 1 steps 1–4). The reset in Demo 1 step 1 refreshes the treasury history when it
+is over 48 h old; add `--reseed` to force it.
 
 1. Monitor:
    ```sh

@@ -164,6 +164,26 @@ test("addresses: checksummed in the path, alias/link bodies, include=balance, 40
   }
 });
 
+test("listAddresses and unlink", async () => {
+  const E = "0x00000000000000000000000000000000000000E1";
+  const up = await server((m, u) => {
+    if (m === "GET" && u === "/api/v0/chains/ethereum/addresses")
+      return [200, ok([{ alias: "relay-escrow-1", address: E, chain: "ethereum", contracts: [{ label: "relay-escrow", name: "SimpleEscrow", version: "1.0" }] }])];
+    if (m === "DELETE" && u === "/api/v0/chains/ethereum/addresses/relay-escrow-1/contracts/relay-escrow") return [200, ok(null)];
+  });
+  try {
+    const mb = multibaas({ url: up.url, key: KEY });
+    const list = await mb.listAddresses();
+    assert.equal(list[0].alias, "relay-escrow-1");
+    await mb.unlink("relay-escrow-1", "relay-escrow");
+    assert.equal(up.last().method, "DELETE");
+    await assert.rejects(mb.unlink("relay-escrow-2", "relay-escrow"), (x: MultiBaasError) => x.status === 404);
+    await assert.rejects(mb.unlink("bad alias!", "relay-escrow"), (x: MultiBaasError) => x.kind === "invalid");
+  } finally {
+    up.close();
+  }
+});
+
 test("deploy, submit, tx, receipt (404 = pending), block and events", async () => {
   const hash = `0x${"ab".repeat(32)}` as Hex;
   const up = await server((m, u, body) => {

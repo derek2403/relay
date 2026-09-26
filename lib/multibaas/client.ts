@@ -218,6 +218,20 @@ export function multibaas(opts: MultiBaasOptions) {
       });
     },
 
+    /** GET /chains/ethereum/addresses: every address MultiBaas knows (aliases and linked labels). */
+    listAddresses: async () => {
+      const r = await get<MbAddress[] | null>("/chains/ethereum/addresses");
+      return Array.isArray(r) ? r : [];
+    },
+
+    /**
+     * DELETE /chains/ethereum/addresses/{a}/contracts/{label}: unlinks a label from an address (frees a
+     * linked-contract slot; the alias and the contract on chain stay).
+     */
+    unlink: async (a: AddressOrAlias, lbl: string) => {
+      await request("DELETE", `/chains/ethereum/addresses/${addrOrAlias(a)}/contracts/${label("label", lbl)}`);
+    },
+
     /** Event indexing progress for a linked contract; null when not linked. */
     indexingStatus: async (a: AddressOrAlias, lbl: string) =>
       find<MbIndexingStatus>(`/chains/ethereum/addresses/${addrOrAlias(a)}/contracts/${label("label", lbl)}/status`),
