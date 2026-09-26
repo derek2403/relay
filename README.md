@@ -8,6 +8,9 @@ this relay: there is no demo mode and no in-browser sample data.
 The relay and the ENS code are ported from `ethtokyo2026` (Keyless Relay). The demo script is
 [docs/demo.md](docs/demo.md).
 
+**Presenting?** [DEMO.md](DEMO.md) is the runbook for the two stage demos: Codex with an ENS identity, and one PAT
+for LLM + weather + images ([examples/weather-image-app](examples/weather-image-app)).
+
 ## Run
 
 Requirements: Node 20+, a browser wallet (MetaMask, Rabby, Brave, …) on Sepolia with a little Sepolia ETH,
