@@ -1,11 +1,14 @@
 # Demo runbook
 
-Two stage demos on **https://relay.derek2403.win**, with the company `sodalabs.eth` on ENSv2 Sepolia.
+Three stage demos on **https://relay.derek2403.win**, with the company `sodalabs.eth` on ENSv2 Sepolia.
 
 1. **Codex with an ENS identity.** Derek gets a name instead of an API key. Codex runs as its own name, makes
    subagents, hits its budget, and stops within seconds when Derek is removed.
 2. **One PAT for LLM + weather + images.** One `curl` puts a token for Derek's ENS name into an app's `.env`.
    A small OpenAI-style web app then uses the LLM, OpenWeatherMap and image generation with that one token.
+3. **A blockchain agent with delegated MultiBaas access.** Derek's agent monitors the company treasury, pays
+   an approved supplier, and deploys and manages an escrow on Sepolia through MultiBaas. It never holds the
+   MultiBaas key or the treasury's funds, and every step it isn't allowed to take is refused.
 
 | Name | What it is |
 |---|---|
@@ -165,6 +168,72 @@ command: then skip `relay init` and paste the address `relay whoami` shows.
 **Combined finale:** run Demo 2 steps 1 to 4 right after Demo 1 step 6. Codex's agent is out of budget, but
 Derek himself still has budget, so the web app keeps working. One **Remove** then stops Codex, its subagents
 and the web app together.
+
+## Demo 3: A blockchain agent with delegated MultiBaas access
+
+> **Draft.** This demo is being built. The flow below is the plan; exact command names, screens, addresses
+> and expected output get filled in once it runs end to end on Sepolia.
+
+The company connects one MultiBaas deployment (Ethereum Sepolia) to the relay. Blockchain permissions travel
+down the same ENS tree as API limits. Each level can only narrow what the level above allows, and a payment
+counts against every level's allowance.
+
+| On Sepolia | What it is |
+|---|---|
+| Treasury (policy vault) | Holds the company's test tokens. Pays only approved recipients, within its own limit |
+| Test token | The ERC-20 the treasury holds and pays out |
+| Escrow template | The one reviewed contract agents may deploy |
+| Relay signer | A testnet wallet on the relay that signs approved transactions. It may pay only through the vault |
+
+| Capability | What the agent may do |
+|---|---|
+| Read · Track | Read balances and contract state, fetch events and transaction status |
+| Prepare | Build calls to approved contract methods |
+| Sign and submit | Send an approved proposal with the relay signer |
+| Deploy · Manage | Deploy the escrow template, call its permitted admin functions |
+
+### Setup (once)
+
+1. **MultiBaas:** the deployment and its Administrators API key are in the server's `.env` (`MULTIBAAS_URL`,
+   `MULTIBAAS_API_KEY`). The **Providers** page shows **MultiBaas** as connected, on Ethereum Sepolia.
+2. **Contracts:** one setup script deploys the test token and the treasury vault, and uploads the escrow
+   template. It registers all of them in MultiBaas, funds the relay signer, and seeds some treasury history,
+   including one large payment to an address that isn't approved.
+3. **Delegate down the tree:** `org:seed` gives `sodalabs.eth`, `dev` and `cloudops` their blockchain
+   permissions: the network, the contracts, the methods, the approved recipients and the token allowances.
+4. Before the demo, Derek exists under `cloudops` (Demo 1 steps 1 and 2) with blockchain permissions ticked,
+   and his agent has read, track, prepare, submit, deploy and manage.
+
+### The demo
+
+Open the portal on **Agents**, with the wallet connected. The **Agent task** panel sends a task as Derek's
+agent. The **Approvals** panel lists what waits for a human.
+
+1. **Monitor:** *"Review our treasury's recent transfers and flag unusually large outgoing payments."*
+   The agent reads the vault's transfer events through MultiBaas. It reports the block range, the amounts and
+   the recipients, and flags the large payment to the unapproved address, with its transaction link. A flag is
+   a rule match (over the threshold, or a recipient outside the approved list), not proof of wrongdoing.
+2. **Prepare:** *"Prepare a payment of 3 test tokens to our approved supplier."* The plan shows the network,
+   the signing wallet, the vault, `pay(supplier, 3)` and the estimated gas. It waits for approval.
+3. **Execute:** in **Approvals**, check the proposal and click **Approve** (a wallet signature over that exact
+   proposal). The relay checks everything again, reserves the allowance, signs with the relay signer and
+   submits through MultiBaas.
+4. **Track:** the proposal goes **Submitted → Confirmed** with its transaction hash and block. Select Derek in
+   **Access tree**: the payment counts against Derek, cloudops, dev and sodalabs.eth.
+5. **Deploy:** *"Deploy our approved escrow template for 5 test tokens to the supplier, with Derek as admin."*
+   The relay checks the constructor arguments. The admin is Derek, never the agent. Approve it. The escrow's
+   address appears, and MultiBaas now knows its contract.
+6. **Manage:** *"Check whether the escrow is paused, then propose the permitted management action."* It reads
+   `paused()`, proposes `pause()`, and after approval the **Paused** event shows in the activity log.
+7. **Reject:** each of these is refused before anything is signed, and the activity log names the rule:
+   - *"Pay 3 test tokens to 0x000000000000000000000000000000000000dEaD"*: the recipient isn't approved.
+   - *"Pay 500 test tokens to the supplier"*: over the allowance.
+   - *"Transfer ownership of the escrow to me"*: the method isn't permitted.
+8. **Revoke:** remove Derek in **Access tree**. The next task is refused with `access revoked`, for his agent
+   and its subagents alike. Transactions that were already confirmed stay confirmed.
+
+**Narrower subagents:** a monitoring subagent can get **Read · Track** only. It can run step 1, and it is
+refused at step 2 even though its parent agent may prepare payments.
 
 ## Build your own app
 
