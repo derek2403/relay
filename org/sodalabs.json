@@ -5,18 +5,18 @@
   "seed": "sodalabs",
   "root": {
     "days": 365,
-    "bundle": {"keys": ["claude", "codex", "openai-images", "gemini", "github", "railway", "vercel", "linear", "canva", "hubspot", "mailchimp", "stripe", "notion", "slack", "mock"], "caps": {"claude": 1000, "codex": 2000, "gemini": 300}, "maxes": {"openai-images": 1000, "stripe": 10000}, "period": "month"}
+    "bundle": {"keys": ["claude", "codex", "openai-images", "gemini", "github", "railway", "vercel", "linear", "canva", "hubspot", "mailchimp", "stripe", "notion", "slack", "weather", "mock"], "caps": {"claude": 1000, "codex": 2000, "gemini": 300}, "maxes": {"openai-images": 1000, "stripe": 10000, "weather": 10000}, "period": "month"}
   },
   "departments": [
     {
       "label": "dev",
       "days": 365,
-      "bundle": {"keys": ["codex", "claude", "github", "railway", "vercel", "linear"], "caps": {"codex": 1000, "claude": 600}, "period": "month"},
+      "bundle": {"keys": ["codex", "claude", "github", "railway", "vercel", "linear", "openai-images", "weather"], "caps": {"codex": 1000, "claude": 600}, "maxes": {"openai-images": 300, "weather": 5000}, "period": "month"},
       "teams": [
         {
           "label": "cloudops",
           "days": 365,
-          "bundle": {"keys": ["codex", "claude", "github", "railway", "vercel"], "caps": {"codex": 400, "claude": 250}, "period": "month"},
+          "bundle": {"keys": ["codex", "claude", "github", "railway", "vercel", "openai-images", "weather"], "caps": {"codex": 400, "claude": 250}, "maxes": {"openai-images": 100, "weather": 1000}, "period": "month"},
           "employees": [
             {
               "label": "emma",

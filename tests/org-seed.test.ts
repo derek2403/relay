@@ -57,14 +57,19 @@ test("the same seed always makes the same spec; another seed makes another", () 
   assert.deepEqual(generateSpec("acme", "sodalabs").departments, a.departments);
 });
 
-/** Every structural rule of a generated spec (the user's request, word for word where it can be). */
-function assertShape(spec: OrgSpec, agentDays = AGENT_DAYS) {
+/**
+ * Every structural rule of a generated spec (the user's request, word for word where it can be).
+ * `edited`: a hand-edited spec (the committed one), whose departments may allow more keys than
+ * the generator gives them.
+ */
+function assertShape(spec: OrgSpec, agentDays = AGENT_DAYS, edited = false) {
   assert.deepEqual(specProblems(spec), [], `seed ${spec.seed}`);
   assert.deepEqual(spec.departments.map((d) => d.label), ["dev", "biz", "mkt"]);
   const people = new Set<string>();
   for (const d of spec.departments) {
     const def = DEPARTMENTS.find((x) => x.label === d.label)!;
-    assert.deepEqual(d.bundle.keys, def.keys);
+    if (edited) for (const k of def.keys) assert.ok(d.bundle.keys.includes(k), `${d.label} allows ${k}`);
+    else assert.deepEqual(d.bundle.keys, def.keys);
     assert.ok(d.teams.length >= 1 && d.teams.length <= 2, `${d.label}: ${d.teams.length} teams`);
     assert.equal(new Set(d.teams.map((t) => t.label)).size, d.teams.length);
     for (const t of d.teams) {
@@ -133,7 +138,23 @@ test("the committed org/sodalabs.json is a valid spec with that shape", () => {
   const spec = readSpec(specPath("sodalabs"));
   assert.ok(spec, "org/sodalabs.json exists");
   assert.equal(spec.label, "sodalabs");
-  assertShape(spec);
+  assertShape(spec, AGENT_DAYS, true);
+});
+
+test("the committed spec allows weather and OpenAI Images from sodalabs.eth down to cloudops (the one-PAT demo)", () => {
+  const nodes = byName(readSpec(specPath("sodalabs"))!);
+  const want: [string, number, number][] = [
+    ["sodalabs.eth", 10000, 1000],
+    ["dev.sodalabs.eth", 5000, 300],
+    ["cloudops.dev.sodalabs.eth", 1000, 100],
+  ];
+  for (const [name, weather, images] of want) {
+    const { bundle } = nodes.get(name)!;
+    assert.ok(bundle.keys.includes("weather") && bundle.keys.includes("openai-images"), `${name} allows both`);
+    assert.equal(bundle.maxes?.weather, weather, `${name} weather requests`);
+    assert.equal(bundle.maxes?.["openai-images"], images, `${name} images`);
+    assert.equal(bundle.period, "month");
+  }
 });
 
 test("niceFloor rounds down to 1, 1.5, 2, 2.5, 3, 4, 5, 6 or 8 times a power of ten", () => {
