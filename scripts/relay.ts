@@ -13,7 +13,8 @@
 // limits on the user's resolver. `codex` starts Codex pointed at the relay
 // with a token signed by the agent key; Codex can then create subagents
 // (research.codex.<name>) through the ens-subagents skill. Only the user's key
-// sends transactions; agent keys only sign tokens.
+// sends transactions; agent keys only sign tokens. `pat` prints a token for any
+// name a key here owns (the user's own name too) as .env lines for an app.
 //
 // Files, in RELAY_HOME (default ~/.relay; folder 700, files 600):
 //   user.json            the user's key { address, privateKey }
@@ -67,6 +68,7 @@ import {
   workspaceTargets,
 } from "./lib/cli-mode";
 import { CODEX_PROVIDER_ID, DEFAULT_CODEX_MODEL, authScript, conflictingTables, withRelayCodexConfig, withoutRelayCodexConfig } from "./lib/codex-config";
+import { PAT_DEFAULT_HOURS, TOKEN_TTL_MARGIN_SEC, findPatSigner, patEnvLines, patExpiry, patName } from "./lib/pat";
 import {
   type Chain,
   REPO_ROOT,
@@ -477,7 +479,7 @@ async function signToken(account: PrivateKeyAccount, name: string, expiry: numbe
     info(`  ! the relay at ${aud} says its public URL is ${claimed}; tokens are bound to ${aud}. If they are refused, set RELAY_URL=${claimed} or add ${aud} to RELAY_AUDIENCES on the relay.`);
   }
   const iat = nowSec();
-  const exp = Math.min(expiry, iat + maxTtl - 60);
+  const exp = Math.min(expiry, iat + maxTtl - TOKEN_TTL_MARGIN_SEC);
   return { token: await createToken(account, { name, iat, exp, aud }), exp };
 }
 
@@ -1431,6 +1433,76 @@ async function cmdEnv(opts: Opts) {
   out(`export OPENAI_API_KEY=${shellQuote(token)}`);
 }
 
+// --- pat -----------------------------------------------------------------------------------------------
+
+/**
+ * `relay pat --name <ens> [--hours H]`: a personal access token for an app's .env (scripts/lib/pat.ts).
+ * Signed here by the key that owns the name (an agent key in agents/, else your own key); it ends at the
+ * name's ENS expiry, after H hours (24) or at the relay's longest token lifetime, whichever is first.
+ * stdout gets only the .env lines (<relay>/pat pipes them into .env); everything else goes to stderr.
+ */
+async function cmdPat(opts: Opts, rest: string[]) {
+  if (rest.length) throw new UserError(`Unexpected "${rest[0]}". Use: ${CMD} pat --name <ENS name> [--hours H]`);
+  if (!opts.name?.trim()) throw new UserError(`Add --name <ENS name>, e.g. ${CMD} pat --name derek.dev.eng.acme.eth`);
+  const name = patName(opts.name);
+  if (!name) throw new UserError(`"${opts.name}" is not a valid ENS name (e.g. derek.dev.eng.acme.eth).`);
+  const hours = positiveNumber(opts.hours, "--hours", PAT_DEFAULT_HOURS);
+  const base = relayUrl(opts);
+  const agent = loadAgentKey(name);
+  let user: ReturnType<typeof userKey> | null = null;
+  try {
+    if (fs.existsSync(files.user)) user = userKey();
+  } catch (err) {
+    if (!agent) throw err; // a broken user.json only matters when no agent key can sign
+  }
+
+  const [status, signer] = await Promise.all([
+    getStatus(base),
+    findPatSigner({
+      name,
+      home: HOME,
+      cmd: CMD,
+      agent: agent && { address: agent.account.address, expiry: agent.key.expiry ?? null },
+      user: user && { address: user.account.address },
+      readChain: async () => {
+        const { levels, broken } = await walkName((await getChain(opts)).pub, name);
+        const entry = levels.at(-1)?.entry;
+        return { missing: broken?.name ?? null, owner: entry?.owner ?? null, expiry: entry?.expiry ?? null };
+      },
+      readOwned: async (address) => (await getOwned(base, address)).names,
+    }),
+  ]);
+  if (signer.warning) info(`  ! ${signer.warning}`);
+  if (!status) info(`  ! the relay at ${base} did not answer /api/relay/status (${START_RELAY_HINT}); assuming it accepts ${DEFAULT_MAX_TOKEN_TTL_SEC / 3600} h tokens`);
+  else if (status.root && name !== status.root && !name.endsWith(`.${status.root}`)) {
+    info(`  ! ${name} is not under ${status.root}, the only names the relay at ${base} serves: it will refuse this PAT`);
+  }
+
+  const now = nowSec();
+  const maxTtlSec = status?.maxTokenTtlSec ?? DEFAULT_MAX_TOKEN_TTL_SEC;
+  const { exp: until, by } = patExpiry({ now, ensExpiry: signer.ensExpiry, hours, maxTtlSec });
+  if (until - now < 60) {
+    throw new UserError(`A PAT for ${name} would last under a minute (${by === "name" ? `the name expires at ${fmtDate(until)}` : "the relay's token limit is that short"}).`);
+  }
+  const account = signer.kind === "agent" ? agent!.account : user!.account;
+  const { token, exp } = await signToken(account, name, until, base, status);
+  const lines = patEnvLines({ name, base, token, exp });
+
+  done(`signed a PAT for ${name} with ${signer.kind === "agent" ? "its agent key" : "your key"} ${account.address}, valid until ${fmtDate(exp)}`);
+  if (by === "name") info(`  ! ${name} expires on ENS then, so the PAT ends with it`);
+  else if (by === "relay" && hours * 3600 > maxTtlSec) info(`  ! the relay accepts tokens of at most ${Number((maxTtlSec / 3600).toFixed(1))} h, so the PAT lasts that long, not ${hours} h`);
+  info(`  Keep it secret: it spends ${name}'s budget. Removing the name (or a level above it) cuts it off.`);
+  // Appended to a file that already has lines (`… | sh >> .env`): start with an empty line, so a last
+  // line without its newline is never glued onto the comment.
+  let appending = false;
+  try {
+    const st = fs.fstatSync(1);
+    appending = st.isFile() && st.size > 0;
+  } catch {}
+  if (appending) out();
+  for (const line of lines) out(line);
+}
+
 // --- logout ------------------------------------------------------------------------------------------
 
 function cmdLogout(opts: Opts) {
@@ -1534,6 +1606,7 @@ function help(): string {
     ['image --as <label> --prompt "…" [--out file.png] [--size 1024x1024]'],
     ["token [--as <label>]", "Print a relay token (for the agent, or a subagent)"],
     ["env [--as <label>]", "Print export lines (KEYLESS_TOKEN, OPENAI_BASE_URL, OPENAI_API_KEY)"],
+    ["pat --name N [--hours H]", "Print .env lines with a PAT for a name one of your keys owns (24 h)"],
     ["logout [--all]", "Delete the session and agent keys (--all: your key too)"],
     ["config [--relay URL] [--rpc URL]", "Show the relay and RPC in use; with flags, save them"],
     ["version", "Print the version"],
@@ -1643,6 +1716,8 @@ async function main() {
       return cmdCodexToken(opts);
     case "env":
       return cmdEnv(opts);
+    case "pat":
+      return cmdPat(opts, rest);
     case "logout":
       return cmdLogout(opts);
     case "config":
