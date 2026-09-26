@@ -11,7 +11,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   marketing: "Marketing",
   business: "Business",
   data: "Data",
-  test: "Testing",
+  test: "Built in",
 };
 
 /** How the relay attaches the real key to the upstream request. */
@@ -19,6 +19,7 @@ export type Auth =
   | { kind: "bearer" } // Authorization: Bearer <key>
   | { kind: "header"; name: string } // <name>: <key>
   | { kind: "raw-authorization" } // Authorization: <key> (no scheme)
+  | { kind: "query"; name: string } // ?<name>=<key> on the upstream URL (clients never send it)
   | { kind: "none" };
 
 /**
@@ -72,7 +73,7 @@ export const CATALOG = [
     auth: { kind: "bearer" },
     metering: { kind: "tokens", format: "openai" },
     dollarCaps: true,
-    note: "Responses and Chat Completions; prices are estimates unless RELAY_CODEX_PRICES is set",
+    note: "Responses and Chat Completions; priced from token usage.",
   },
   {
     id: "openai-images",
@@ -168,7 +169,7 @@ export const CATALOG = [
     auth: { kind: "bearer" },
     metering: { kind: "requests" },
     dollarCaps: false,
-    note: "Set RELAY_UPSTREAM_MAILCHIMP to your data center's URL",
+    note: "Needs your account's data center URL (for example https://us21.api.mailchimp.com).",
   },
   // --- Business --------------------------------------------------------------
   {
@@ -204,22 +205,23 @@ export const CATALOG = [
   },
   // --- Data ------------------------------------------------------------------
   {
-    // Open-Meteo's forecast API: free, no key. Read-only (routes.ts forwards GET /v1/<endpoint> only);
-    // each call counts one request, so relay.max.weather caps it.
+    // OpenWeatherMap: same paths and parameters as api.openweathermap.org; the relay adds ?appid=<key>.
+    // Read-only (routes.ts forwards GET /data/2.5/* and /geo/1.0/* only); each call counts one request,
+    // so relay.max.weather caps it.
     id: "weather",
-    label: "Weather (Open-Meteo)",
+    label: "Weather (OpenWeatherMap)",
     category: "data",
-    keyEnv: null,
-    upstream: "https://api.open-meteo.com",
-    auth: { kind: "none" },
+    keyEnv: "OPENWEATHER_API_KEY",
+    upstream: "https://api.openweathermap.org",
+    auth: { kind: "query", name: "appid" },
     metering: { kind: "requests" },
     dollarCaps: false,
-    note: "No key needed. Current weather and forecasts by latitude/longitude.",
+    note: "Current weather and forecasts by city: /data/2.5/weather?q=Tokyo&units=metric.",
   },
   // --- Testing ---------------------------------------------------------------
   {
     id: "mock",
-    label: "Mock (test, $0.01 per call)",
+    label: "Relay ping ($0.01 per call)",
     category: "test",
     keyEnv: null,
     upstream: null,
@@ -236,6 +238,9 @@ export const PROVIDER_IDS = CATALOG.map((p) => p.id) as ProviderId[];
 export const isProviderId = (id: string): id is ProviderId => (PROVIDER_IDS as string[]).includes(id);
 
 export const catalogEntry = (id: ProviderId): CatalogEntry => CATALOG.find((p) => p.id === id)! as CatalogEntry;
+
+/** The dashboard doesn't list the relay's built-in test API; the relay, scripts and tests still use it. */
+export const isListed = (id: string) => id !== "mock";
 
 /** The unit a count limit (relay.max.<id>) counts, for display: "images" or "requests". */
 export const countUnit = (id: ProviderId) => (catalogEntry(id).metering.kind === "images" ? "images" : "requests");

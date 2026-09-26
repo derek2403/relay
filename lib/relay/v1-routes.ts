@@ -2,7 +2,7 @@
 //
 // Point an SDK's base URL at <relay>/v1/openai (the OpenAI SDK: chat.completions, responses,
 // embeddings, models, images.generate), <relay>/v1/anthropic (the Anthropic SDK) or call
-// <relay>/v1/weather/forecast?... (Open-Meteo), and pass a Keyless Relay token (kr1...) where the
+// <relay>/v1/weather/data/2.5/weather?q=Tokyo (OpenWeatherMap's own paths), and pass a Keyless Relay token (kr1...) where the
 // API key goes. Each URL is mapped onto the relay's own route, /api/relay/<provider>/<upstream path>,
 // and handled by handleRelayRequest unchanged: the same token check, ENS policy, route rules,
 // metering, streaming, live revocation and log.
@@ -10,21 +10,19 @@
 //   /v1/openai/images/<rest>  -> openai-images  /v1/images/<rest>
 //   /v1/openai/<rest>         -> codex          /v1/<rest>
 //   /v1/anthropic/<rest>      -> claude         /v1/<rest>
-//   /v1/weather/<rest>        -> weather        /v1/<rest>
-//   /v1/<catalog id>/<rest>   -> that provider  /<rest>
+//   /v1/<catalog id>/<rest>   -> that provider  /<rest>   (e.g. /v1/weather/data/2.5/weather -> OpenWeatherMap)
 //
-// After an alias (openai, anthropic, weather) one leading "v1" is dropped, so a base URL with or
+// After an alias (openai, anthropic) one leading "v1" is dropped, so a base URL with or
 // without its own /v1 works: the Anthropic SDK given <relay>/v1/anthropic calls
 // /v1/anthropic/v1/messages, which is claude's /v1/messages (no provider has a /v1/v1 path).
 
 import { type ProviderId, PROVIDER_IDS, isProviderId } from "./catalog";
 import { type RelayDeps, handleRelayRequest } from "./providers";
 
-/** Base URL names that aren't catalog ids (weather is both: the alias wins, adding /v1). */
+/** Base URL names that aren't catalog ids. */
 const ALIASES = new Map<string, ProviderId>([
   ["openai", "codex"],
   ["anthropic", "claude"],
-  ["weather", "weather"],
 ]);
 
 export type V1Route = {

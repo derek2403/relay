@@ -65,14 +65,15 @@ export const MOCK_COST_USD = mockMetering.kind === "requests" ? (mockMetering.us
 
 /** Query parameters that carry a key for some providers (Gemini's ?key=); dropped so a client token never reaches them. */
 const KEY_QUERY_PARAMS: Partial<Record<ProviderId, string[]>> = { gemini: ["key"] };
+for (const entry of CATALOG) if (entry.auth.kind === "query") (KEY_QUERY_PARAMS[entry.id as ProviderId] ??= []).push(entry.auth.name);
 
 /** The query string sent upstream, without key parameters. */
 export function upstreamSearch(provider: ProviderId, url: URL): string {
   const drop = KEY_QUERY_PARAMS[provider];
-  if (!drop || !drop.some((k) => url.searchParams.has(k))) return url.search;
-  const params = new URLSearchParams(url.search);
-  for (const k of drop) params.delete(k);
-  const out = params.toString();
+  // In any case: OpenWeatherMap reads APPID as well as appid.
+  const isKey = (name: string) => !!drop?.includes(name.toLowerCase());
+  if (![...url.searchParams.keys()].some(isKey)) return url.search;
+  const out = new URLSearchParams([...url.searchParams].filter(([name]) => !isKey(name))).toString();
   return out ? `?${out}` : "";
 }
 
@@ -443,7 +444,7 @@ export function mockMessage(name: string) {
     type: "message",
     role: "assistant",
     model: "mock",
-    content: [{ type: "text", text: `Hello from the mock provider, ${name}` }],
+    content: [{ type: "text", text: `Hello from the relay, ${name}` }],
     stop_reason: "end_turn",
     stop_sequence: null,
     usage: { input_tokens: 10, output_tokens: 20 },
@@ -761,6 +762,8 @@ export async function handleRelayRequest(request: Request, providerParam: string
 
   // 7. Forward with the real key.
   const key = config.keyFor(provider);
+  // Query-parameter auth (OpenWeatherMap's ?appid=): the client's own copy was dropped by upstreamSearch.
+  if (key && upstreamUrl && entry.auth.kind === "query") upstreamUrl.searchParams.set(entry.auth.name, key);
   const tokenPriced = !!plan && plan.kind !== "free";
   // A client that leaves stops a stream (the provider stops generating). A non-streamed generation
   // keeps running to the end, since the provider bills it anyway, and is charged from its real usage.
