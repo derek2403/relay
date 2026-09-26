@@ -65,6 +65,7 @@ import {
 import { registerRoot } from "./lib/org-root";
 import {
   AGENT_DAYS,
+  type AliasNode,
   DAY,
   DEFAULT_ORG,
   GAS,
@@ -79,11 +80,13 @@ import {
   listSpecs,
   planSteps,
   readSpec,
+  renderAliases,
   renderTree,
   renewDue,
   renewTarget,
   seedKeys,
   shortAddress,
+  specAliases,
   specPath,
   summarizePlan,
   writeSpec,
@@ -100,7 +103,7 @@ const fmtEth = (wei: bigint) => {
   return n === 0 ? "0" : n < 0.0001 ? n.toExponential(2) : n.toFixed(4);
 };
 const fmtGas = (gas: number) => `${(gas / 1e6).toFixed(2)}M gas`;
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : word.endsWith("s") ? "es" : "s"}`;
 
 /** Rate-limited RPC responses (429) seen, for the hint at the end. */
 let rateLimited = 0;
@@ -264,7 +267,8 @@ function exportKeys(file: string, spec: OrgSpec, admin: Address, keys: Map<strin
 
 function namesLine(spec: OrgSpec): string {
   const { names } = summarizePlan(spec);
-  return `${plural(names.department, "department")} · ${plural(names.team, "team")} · ${plural(names.employee, "employee")} · ${plural(names.agent, "agent")} · ${plural(names.subagent, "subagent")} = ${names.total} names`;
+  const aliases = specAliases(spec).length;
+  return `${plural(names.department, "department")} · ${plural(names.team, "team")} · ${plural(names.employee, "employee")} · ${plural(names.agent, "agent")} · ${plural(names.subagent, "subagent")} = ${names.total} names${aliases ? ` (+ ${plural(aliases, "alias")})` : ""}`;
 }
 
 function ownerText(admin: Address | null, keys: Map<string, SeedKey> | null) {
@@ -284,13 +288,15 @@ function printPlan(spec: OrgSpec, file: string, admin: Address | null, keys: Map
   if (!admin) say("  (set ADMIN_PRIVATE_KEY to see the addresses; the keys are derived from it)");
   say("");
   for (const line of renderTree(spec, { owner: ownerText(admin, keys) })) say(`  ${line}`);
+  for (const line of renderAliases(spec)) say(`  ${line}`);
 
   const levels = s.names.company + s.names.department + s.names.team;
   say(`\nTransactions for a fresh run (a re-run sends only what is missing on chain)`);
   say(`  admin        ${String(s.admin.txs).padStart(4)} txs  ≈ ${fmtGas(s.admin.gas)}`);
   say(`                 register ${root}: ${s.rootRegistration.txs} (mint MockUSDC, approve, commit, register)`);
-  say(`                 its resolver and ${levels} levels (registry, entry, setParent, limits): ${s.adminSteps.txs - 2 * s.names.employee}`);
+  say(`                 its resolver and ${levels} levels (registry, entry, setParent, limits): ${s.adminSteps.txs - 2 * s.names.employee - s.aliases.txs}`);
   say(`                 ${s.names.employee} employees' names and limits (Add a member): ${2 * s.names.employee}`);
+  if (s.aliases.txs) say(`                 ${plural(s.aliases.txs, "alias")} (one register each, the target's registry attached): ${s.aliases.txs}`);
   say(`                 gas top-ups for the employees: ${s.topUps.txs}`);
   say(`  employees    ${String(s.employees.txs).padStart(4)} txs  ≈ ${fmtGas(s.employees.gas)}  (each from its own wallet)`);
   const nodes = flattenSpec(spec);
@@ -351,6 +357,7 @@ async function seed(spec: OrgSpec, file: string, privateKey: Hex, keys: Map<stri
   const nodes = flattenSpec(spec);
   const byName = new Map(nodes.map((n) => [n.name, n]));
   const employees = nodes.filter((n) => n.kind === "employee");
+  const aliases = new Map(specAliases(spec).map((a) => [a.name, a]));
   const planned = planSteps(spec);
   const summary = summarizePlan(spec);
 
@@ -426,11 +433,23 @@ async function seed(spec: OrgSpec, file: string, privateKey: Hex, keys: Map<stri
     }
   };
 
+  /** An alias's entry in its parent's registry. */
+  const aliasEntry = (a: AliasNode) => readEntry(pub, registry.get(a.parent)!, a.label);
+  const assertAliasFree = async (a: AliasNode) => {
+    const e = await aliasEntry(a);
+    if (e.registered && e.owner && !isAddressEqual(e.owner, admin.address)) {
+      throw new UserError(`${a.name} (an alias in ${rel(file)}) is registered to ${e.owner}, not the admin. Remove it in the portal (or pick another label), then re-run.`);
+    }
+  };
+
   // --- The company name ---
   say("\nCompany name");
   const created = new Set<string>();
   // Nothing is sent before every admin-owned name is known to be free or already the admin's.
-  await Promise.all(nodes.filter((n) => n.parent && (isOrgLevel(n) || n.kind === "employee")).map(assertNotTaken));
+  await Promise.all([
+    ...nodes.filter((n) => n.parent && (isOrgLevel(n) || n.kind === "employee")).map(assertNotTaken),
+    ...[...aliases.values()].map(assertAliasFree),
+  ]);
   sending = true;
   if (rootEntry.registered) {
     const days = Math.floor((rootEntry.expiry - (await chainNow(pub))) / DAY);
@@ -443,6 +462,7 @@ async function seed(spec: OrgSpec, file: string, privateKey: Hex, keys: Map<stri
 
   const now0 = await chainNow(pub);
   const stepOf = (p: PlannedStep): Step => {
+    if (p.op === "alias") return aliasStep(p, aliases.get(p.name)!);
     const n = byName.get(p.name)!;
     const signer = p.signer === "admin" ? admin.address : keyAddr(p.signer);
     const own = () => registry.get(n.name)!;
@@ -547,6 +567,33 @@ async function seed(spec: OrgSpec, file: string, privateKey: Hex, keys: Map<stri
   };
 
   /**
+   * An alias: the admin registers its label in the parent's registry with the target's registry
+   * attached (like org-setup's launch alias). The target's registry keeps pointing back at the
+   * target, so the alias path is never canonical. Done once the entry is the admin's and carries
+   * the target's registry; an entry of the admin's with another subregistry is re-pointed.
+   */
+  function aliasStep(p: PlannedStep, a: AliasNode): Step {
+    const holder = () => registry.get(a.parent)!;
+    const target = () => registry.get(a.target)!;
+    return {
+      id: p.id,
+      deps: p.deps,
+      title: `added ${a.name}, an alias whose registry is ${a.target}'s (not canonical: that registry points back at ${a.target})`,
+      done: async () => {
+        const e = await aliasEntry(a);
+        return e.registered && !!e.owner && isAddressEqual(e.owner, admin.address) && !!e.subregistry && isAddressEqual(e.subregistry, target());
+      },
+      tx: async () => {
+        await assertAliasFree(a);
+        const e = await aliasEntry(a);
+        if (e.registered) return tx.setSubregistry(holder(), a.label, target());
+        created.add(a.name);
+        return tx.register(holder(), a.label, admin.address, target(), adminResolver, RegistryRoles.ROLE_SET_SUBREGISTRY, renewTarget(now0, a.days));
+      },
+    };
+  }
+
+  /**
    * Runs one wallet's steps. Finished steps are skipped (listed with --verbose, else counted);
    * repair-only steps (renew, clear, a setSubregistry that register already did) aren't counted.
    */
@@ -645,11 +692,13 @@ async function seed(spec: OrgSpec, file: string, privateKey: Hex, keys: Map<stri
   const spent = before.reduce((a, b) => a + b, 0n) - after.reduce((a, b) => a + b, 0n);
   const total = sent.admin + sent.employees;
   say(`\n${total ? `Done: ${total} transactions (admin ${sent.admin}, employees ${sent.employees}).` : "Everything was already set up: 0 transactions."}`);
-  say(`  names: ${created.size} created, ${nodes.length - created.size} already there (${nodes.length} in the spec)`);
+  const specNames = nodes.length + aliases.size;
+  say(`  names: ${created.size} created, ${specNames - created.size} already there (${specNames} in the spec)`);
   say(`  ETH: ${fmtEth(spent)} spent on gas by everyone${funded ? `; the admin sent the employees ${fmtEth(funded)} for theirs (they keep what's left)` : ""}; the admin has ${fmtEth(after[0])} left`);
   if (rateLimited) say(`  ! the RPC answered 429 (rate limited) ${plural(rateLimited, "time")}; a private Sepolia RPC in RELAY_RPC_URL makes this faster`);
   say("");
   for (const line of renderTree(spec, { compact: true })) say(`  ${line}`);
+  for (const a of aliases.values()) say(`  ${a.name}  alias of ${a.target}`);
   say("\nPut these in .env.local (then restart npm run dev):");
   say(`RELAY_ROOT_NAME=${root}`);
   say(`RELAY_ROOT_OWNER=${admin.address}`);

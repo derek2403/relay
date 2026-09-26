@@ -34,6 +34,7 @@ import {
   renewTarget,
   resetSweep,
   seedKeys,
+  specAliases,
   specPath,
   specProblems,
   summarizePlan,
@@ -433,6 +434,99 @@ test("a spec team that is also an org-setup level keeps both lists", () => {
   const web = resetSweep(plan, spec).find((t) => t.parent === "web.dev.tiny.eth")!;
   assert.deepEqual(web.keep, new Set(["launch", "ana", "ben"]));
   assert.equal(web.optional, false);
+});
+
+// --- Aliases ------------------------------------------------------------------------------------------------
+
+/** tinySpec plus a second department (ops) with a team (sales), and an alias of web.dev.tiny.eth under `parent`. */
+function aliasSpec(parent = "ops.tiny.eth", label = "web"): OrgSpec {
+  const spec = tinySpec();
+  spec.departments.push({
+    label: "ops",
+    days: 365,
+    bundle: b(["codex"], { codex: 40 }),
+    teams: [{ label: "sales", days: 365, bundle: b(["codex"], { codex: 10 }), employees: [] }],
+  });
+  spec.aliases = [{ label, parent, target: "web.dev.tiny.eth", days: 365 }];
+  return spec;
+}
+
+test("the committed spec lists one alias: cloudops.biz.sodalabs.eth sharing cloudops.dev.sodalabs.eth's registry", () => {
+  const spec = readSpec(specPath("sodalabs"))!;
+  assert.deepEqual(specAliases(spec), [
+    { label: "cloudops", parent: "biz.sodalabs.eth", target: "cloudops.dev.sodalabs.eth", days: ORG_DAYS, name: "cloudops.biz.sodalabs.eth" },
+  ]);
+  // Not a name of the tree: no bundle, no key, no children of its own.
+  assert.ok(!flattenSpec(spec).some((n) => n.name === "cloudops.biz.sodalabs.eth"));
+  assert.ok(!seedKeys(ADMIN_KEY, spec).has("cloudops.biz.sodalabs.eth"));
+});
+
+test("specProblems checks aliases: label, an admin level as parent, a department or team as target, no loops, no clashes", () => {
+  assert.deepEqual(specProblems(aliasSpec()), []);
+  assert.deepEqual(specProblems(aliasSpec("sales.ops.tiny.eth")), []);
+  const problems = (spec: OrgSpec) => specProblems(spec).join("\n");
+  assert.match(problems(aliasSpec("ana.web.dev.tiny.eth")), /parent "ana\.web\.dev\.tiny\.eth" must be the company, a department or a team/);
+  assert.match(problems(aliasSpec("nope.tiny.eth")), /parent "nope\.tiny\.eth" must be/);
+  assert.match(problems(aliasSpec("dev.tiny.eth")), /the label "web" is already used under dev\.tiny\.eth/);
+  assert.match(problems(aliasSpec("web.dev.tiny.eth", "loop")), /can't sit inside its own target/);
+  assert.match(problems(aliasSpec("ops.tiny.eth", "Web")), /"Web" is not a normalized ENS label/);
+  const toRoot = aliasSpec();
+  toRoot.aliases![0].target = "tiny.eth";
+  assert.match(problems(toRoot), /target "tiny\.eth" must be a department or a team/);
+  const toEmployee = aliasSpec();
+  toEmployee.aliases![0].target = "ana.web.dev.tiny.eth";
+  assert.match(problems(toEmployee), /target "ana\.web\.dev\.tiny\.eth" must be a department or a team/);
+  const twice = aliasSpec();
+  twice.aliases!.push({ ...twice.aliases![0] });
+  assert.match(problems(twice), /web\.ops\.tiny\.eth: the label "web" is already used under ops\.tiny\.eth/);
+  const noDays = aliasSpec();
+  noDays.aliases![0].days = 0;
+  assert.match(problems(noDays), /web\.ops\.tiny\.eth: days must be a positive number/);
+  assert.match(problems({ ...aliasSpec(), aliases: {} as never }), /aliases must be a list/);
+});
+
+test("plan: an alias is one admin register, sent once the target's registry points back at the target", () => {
+  const spec = aliasSpec();
+  const steps = planSteps(spec);
+  const alias = steps.filter((s) => s.op === "alias");
+  assert.deepEqual(alias, [
+    {
+      id: "alias:web.ops.tiny.eth",
+      signer: "admin",
+      op: "alias",
+      name: "web.ops.tiny.eth",
+      deps: ["reg:ops.tiny.eth", "reg:web.dev.tiny.eth", "parent:web.dev.tiny.eth"],
+      fresh: true,
+      gas: GAS.alias,
+    },
+  ]);
+  const ids = new Set(steps.map((s) => s.id));
+  for (const d of alias[0].deps) assert.ok(ids.has(d), `${d} is a step`);
+  const withAlias = summarizePlan(spec);
+  const without = summarizePlan({ ...spec, aliases: [] });
+  assert.deepEqual(withAlias.aliases, { txs: 1, gas: GAS.alias });
+  assert.equal(withAlias.adminSteps.txs, without.adminSteps.txs + 1);
+  assert.equal(withAlias.total.txs, without.total.txs + 1);
+  assert.deepEqual(withAlias.names, without.names, "an alias isn't counted as a name of the tree");
+  assert.deepEqual(summarizePlan(tinySpec()).aliases, { txs: 0, gas: 0 });
+});
+
+test("demo-reset keeps an alias registered under a swept team", () => {
+  const plan = { teams: [], launch: "launch.nowhere.tiny.eth", keep: new Map<string, Set<string>>() };
+  const sales = resetSweep(plan, aliasSpec("sales.ops.tiny.eth")).find((t) => t.parent === "sales.ops.tiny.eth")!;
+  assert.deepEqual(sales.keep, new Set(["web"]));
+  // An alias under a department isn't in a swept registry at all (only teams are swept).
+  for (const t of resetSweep(plan, aliasSpec())) assert.ok(!t.keep.has("web"), `${t.parent} keeps nothing called web`);
+});
+
+test("aliases round-trip through formatSpec and parseSpec", () => {
+  const spec = aliasSpec();
+  const text = formatSpec(spec);
+  assert.match(text, /"aliases": \[\n {4}\{\n {6}"label": "web",\n {6}"parent": "ops\.tiny\.eth",\n {6}"target": "web\.dev\.tiny\.eth",\n {6}"days": 365\n {4}\}\n {2}\]/);
+  assert.deepEqual(parseSpec(text), spec);
+  // The committed file is exactly what formatSpec writes.
+  const committed = fs.readFileSync(specPath("sodalabs"), "utf8");
+  assert.equal(formatSpec(parseSpec(committed)), committed);
 });
 
 test("the spec file round-trips through formatSpec (bundles on one line)", () => {

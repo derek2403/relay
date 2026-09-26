@@ -1,9 +1,9 @@
 // npm run demo:reset: undoes a demo run. Removes (unregisters) every name the demo added under
 // the teams, keeping what org-setup made (the launch squad, its alias and mia) and, when
 // org/<org>.json exists (npm run org:seed), every seeded employee (and so their agents and
-// subagents), asks the relay to clear spend for names that no longer exist, deletes RELAY_HOME
-// (the CLI's keys) and deletes what Codex made in demo-workspace/ (everything but relay,
-// AGENTS.md and .agents/).
+// subagents) and every alias it lists, asks the relay to clear spend for names that no longer
+// exist, deletes RELAY_HOME (the CLI's keys) and deletes what Codex made in demo-workspace/
+// (everything but relay, AGENTS.md and .agents/).
 // The company, departments and teams stay. A removed label can be added again: a re-registered
 // name gets a new resource, so it starts with no spend.
 //

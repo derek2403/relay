@@ -35,6 +35,16 @@ export type SpecEmployee = SpecLevel & { agents: SpecAgent[] };
 export type SpecTeam = SpecLevel & { employees: SpecEmployee[] };
 export type SpecDepartment = SpecLevel & { teams: SpecTeam[] };
 
+/**
+ * A second, non-canonical path to a level: the admin registers `label` under `parent` with
+ * `target`'s registry as its subregistry. Every name below `target` then also resolves as
+ * `<name>.<label>.<parent>` (UniversalHelper.findRegistries reaches the same entries), but the
+ * target's registry keeps pointing back at `target` (getParent), so findCanonicalName never
+ * returns the alias path and the relay (RELAY_REQUIRE_CANONICAL) refuses names under it.
+ * `parent` and `target` are full names of levels in this spec (the admin's registries).
+ */
+export type SpecAlias = { label: string; parent: string; target: string; days: number };
+
 export type OrgSpec = {
   $comment?: string;
   version: typeof SPEC_VERSION;
@@ -44,6 +54,8 @@ export type OrgSpec = {
   seed: string;
   root: { days: number; bundle: Bundle };
   departments: SpecDepartment[];
+  /** Non-canonical aliases (hand-added; the generator makes none). */
+  aliases?: SpecAlias[];
 };
 
 export type SeedKind = "company" | "department" | "team" | "employee" | "agent" | "subagent";
@@ -95,6 +107,11 @@ export function flattenSpec(spec: OrgSpec): SeedNode[] {
 
 /** The admin's levels: company, departments and teams. */
 export const isOrgLevel = (n: SeedNode) => n.kind === "company" || n.kind === "department" || n.kind === "team";
+
+/** An alias of the spec with its full name (`<label>.<parent>`). Kept out of flattenSpec: an alias has no bundle and no children of its own. */
+export type AliasNode = SpecAlias & { name: string };
+
+export const specAliases = (spec: Pick<OrgSpec, "aliases">): AliasNode[] => (spec.aliases ?? []).map((a) => ({ ...a, name: `${a.label}.${a.parent}` }));
 
 // --- Generation (deterministic from a seed) -------------------------------------------------------
 
@@ -336,7 +353,10 @@ export function specProblems(spec: OrgSpec): string[] {
   if (!spec.root || !Array.isArray(spec.departments)) return [...out, "the spec needs root and departments"];
   const root = `${spec.label}.eth`;
   const people = new Map<string, string>();
+  /** Every name of the spec and its kind (for the aliases' checks). */
+  const known = new Map<string, SeedKind>();
   const checkLevel = (level: SpecLevel, name: string, parent: { bundle: Bundle; name: string } | null, siblings: Set<string>, kind: SeedKind) => {
+    known.set(name, kind);
     if (!isLabel(level.label)) out.push(`${name}: "${level.label}" is not a normalized ENS label`);
     if (siblings.has(level.label)) out.push(`${name}: the label "${level.label}" is used twice here`);
     siblings.add(level.label);
@@ -374,6 +394,39 @@ export function specProblems(spec: OrgSpec): string[] {
         }
       }
     }
+  }
+  out.push(...aliasProblems(spec.aliases, known));
+  return out;
+}
+
+/** An alias lives in the admin's registry under `parent` and shares the registry of a department or team. */
+function aliasProblems(aliases: unknown, known: Map<string, SeedKind>): string[] {
+  if (aliases === undefined) return [];
+  if (!Array.isArray(aliases)) return ["aliases must be a list of { label, parent, target, days }"];
+  const out: string[] = [];
+  const names = new Set<string>();
+  for (const [i, a] of (aliases as (Partial<SpecAlias> | null)[]).entries()) {
+    if (!a || typeof a !== "object") {
+      out.push(`aliases[${i}] must be { label, parent, target, days }`);
+      continue;
+    }
+    const name = `${a.label}.${a.parent}`;
+    const where = isLabel(a.label) && typeof a.parent === "string" ? name : `aliases[${i}]`;
+    if (!isLabel(a.label)) out.push(`${where}: "${a.label}" is not a normalized ENS label`);
+    const parentKind = typeof a.parent === "string" ? known.get(a.parent) : undefined;
+    if (parentKind !== "company" && parentKind !== "department" && parentKind !== "team") {
+      out.push(`${where}: parent "${a.parent}" must be the company, a department or a team of this spec (the admin registers the alias in its registry)`);
+    }
+    const targetKind = typeof a.target === "string" ? known.get(a.target) : undefined;
+    if (targetKind !== "department" && targetKind !== "team") {
+      out.push(`${where}: target "${a.target}" must be a department or a team of this spec (the alias shares its registry)`);
+    }
+    if (typeof a.parent === "string" && typeof a.target === "string" && (a.parent === a.target || a.parent.endsWith(`.${a.target}`))) {
+      out.push(`${where}: an alias can't sit inside its own target ${a.target}`);
+    }
+    if (known.has(name) || names.has(name)) out.push(`${where}: the label "${a.label}" is already used under ${a.parent}`);
+    names.add(name);
+    if (!(typeof a.days === "number" && Number.isFinite(a.days) && a.days > 0)) out.push(`${where}: days must be a positive number`);
   }
   return out;
 }
@@ -511,6 +564,8 @@ export const GAS = {
   deployResolver: 200_000,
   deployRegistry: 200_000,
   register: 170_000,
+  /** An alias: register with another level's registry attached (Sepolia estimateGas: 179k). */
+  alias: 200_000,
   setSubregistry: 75_000,
   setResolver: 75_000,
   setParent: 90_000,
@@ -528,7 +583,7 @@ export const GAS = {
 /** Registering <org>.eth: mint MockUSDC, approve, commit, register. */
 export const ROOT_REGISTRATION = { txs: 4, gas: GAS.mintUsdc + GAS.approveUsdc + GAS.commit + GAS.registerEth };
 
-export type SeedOp = "deployResolver" | "deployRegistry" | "register" | "setSubregistry" | "setResolver" | "setParent" | "bundle" | "renew" | "unregister";
+export type SeedOp = "deployResolver" | "deployRegistry" | "register" | "setSubregistry" | "setResolver" | "setParent" | "bundle" | "renew" | "unregister" | "alias";
 
 export type PlannedStep = {
   id: string;
@@ -556,6 +611,9 @@ const gasOf = (op: SeedOp, n: SeedNode) => (op === "bundle" ? GAS.bundleBase + G
  *    (register with its registry attached, ROLE_SET_SUBREGISTRY), setSubregistry, setParent, the
  *    bundle on the admin's resolver; per employee the entry (owner = the employee's wallet,
  *    ROLE_SET_SUBREGISTRY, no registry yet) and the bundle.
+ *  - admin, per alias: one register in the parent's registry with the target's registry as its
+ *    subregistry (resolver = the admin's, ROLE_SET_SUBREGISTRY, like org-setup's alias), once the
+ *    target's registry points back at the target (setParent), so the alias is never canonical.
  *  - each employee with agents (own wallet): its resolver and registry, setSubregistry under its
  *    name, setParent; per agent a registry, the entry (owner = agent key, no roles, registry
  *    attached), setParent, the bundle + addr on the employee's resolver; per subagent the entry
@@ -578,6 +636,9 @@ export function planSteps(spec: OrgSpec): PlannedStep[] {
     add("admin", "setParent", n, `parent:${n.name}`, [`reg:${n.name}`]);
     add("admin", "bundle", n, `bundle:${n.name}`, ["resolver:admin"]);
     if (n.parent) add("admin", "renew", n, `renew:${n.name}`, [`entry:${n.name}`], false);
+  }
+  for (const a of specAliases(spec)) {
+    steps.push({ id: `alias:${a.name}`, signer: "admin", op: "alias", name: a.name, deps: [`reg:${a.parent}`, `reg:${a.target}`, `parent:${a.target}`], fresh: true, gas: GAS.alias });
   }
   const employees = nodes.filter((n) => n.kind === "employee");
   for (const e of employees) {
@@ -617,8 +678,10 @@ export type TxTotals = { txs: number; gas: number };
 export type PlanSummary = {
   names: Record<SeedKind, number> & { total: number };
   rootRegistration: TxTotals;
-  /** The admin's own steps (not counting the root registration and the top-ups). */
+  /** The admin's own steps (not counting the root registration and the top-ups; aliases included). */
   adminSteps: TxTotals;
+  /** The aliases' registrations (part of adminSteps). */
+  aliases: TxTotals;
   /** One ETH transfer per employee that sends transactions (one with agents). */
   topUps: TxTotals;
   admin: TxTotals;
@@ -646,6 +709,7 @@ export function summarizePlan(spec: OrgSpec): PlanSummary {
     names,
     rootRegistration: { ...ROOT_REGISTRATION },
     adminSteps,
+    aliases: sum(fresh.filter((s) => s.op === "alias")),
     topUps,
     admin,
     employees: emp,
@@ -709,6 +773,10 @@ export function renderTree(spec: OrgSpec, opts: { owner?: (n: SeedNode) => strin
   return lines;
 }
 
+/** One line per alias: where it is and whose registry it shares. */
+export const renderAliases = (spec: OrgSpec): string[] =>
+  specAliases(spec).map((a) => `${a.name}  alias · admin · shares ${a.target}'s registry (not canonical: the relay refuses names under it) · ${a.days} d`);
+
 // --- demo-reset --------------------------------------------------------------------------------------
 
 export type SweepTarget = {
@@ -725,9 +793,9 @@ export type SweepTarget = {
 /**
  * Where demo-reset looks for names added during demos: org-setup's teams and launch squad
  * (keeping launch, its alias and mia) and, when org/<org>.json exists, every team of the spec
- * (keeping its seeded employees; their agents and subagents live in the employees' own
- * registries, which the sweep never touches). A developer added live under a team, and with it
- * everything under the developer, is removed.
+ * (keeping its seeded employees and any alias of the spec registered there; agents and subagents
+ * live in the employees' own registries, which the sweep never touches). A developer added live
+ * under a team, and with it everything under the developer, is removed.
  */
 export function resetSweep(setup: { teams: { name: string }[]; launch: string; keep: Map<string, Set<string>> }, spec: OrgSpec | null): SweepTarget[] {
   const targets = new Map<string, SweepTarget>();
@@ -744,5 +812,7 @@ export function resetSweep(setup: { teams: { name: string }[]; launch: string; k
       targets.set(t.name, { parent: t.name, keep: seeded, source: "org-seed", optional: false });
     }
   }
+  // An alias is a spec name too: keep it wherever the sweep lists its parent.
+  for (const a of spec ? specAliases(spec) : []) targets.get(a.parent)?.keep.add(a.label);
   return [...targets.values()];
 }

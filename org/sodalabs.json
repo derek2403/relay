@@ -193,5 +193,13 @@
         }
       ]
     }
+  ],
+  "aliases": [
+    {
+      "label": "cloudops",
+      "parent": "biz.sodalabs.eth",
+      "target": "cloudops.dev.sodalabs.eth",
+      "days": 365
+    }
   ]
 }
