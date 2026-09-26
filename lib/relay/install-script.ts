@@ -10,7 +10,7 @@
 const SAFE_HOST = /^(?:[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.?|\[[0-9A-Fa-f:.]+\])$/;
 
 /** The origin of an http(s) URL without credentials whose host is plain, else null. */
-function safeOrigin(raw: string | null | undefined): string | null {
+export function safeOrigin(raw: string | null | undefined): string | null {
   if (!raw?.trim()) return null;
   let url: URL;
   try {
