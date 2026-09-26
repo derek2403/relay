@@ -468,5 +468,5 @@ Every refusal is JSON, `{"error": "…", "reason": "…"}`, and names the level 
 | World App says `feature_unavailable` / `credential_unavailable` | Selfie Check isn't enabled for the World app yet. Ask World to enable it; meanwhile show Reject/Revoke |
 | `world_rejected:…` or `wrong_person` | The proof failed at World's verifier, or it came from a different World ID than the one linked: the agent stays paused. Try again with the linked phone |
 | Monitoring finds no transfers | MultiBaas keeps events 72 hours on the free plan: `ADMIN_PRIVATE_KEY=0x… npm run chain:setup -- --reseed` |
-| A payment fails on chain (`reverted`) | The vault's own limits refused it (10 STD per payment, 100 per 30 days) or it ran out of STD; check `relay chain status`, top the vault up with `npm run chain:setup` |
+| A payment fails on chain (`reverted`) | The vault's own limits refused it (10 STD per payment, 100 per 30 days) or it ran out of STD; check `relay chain status`. `ADMIN_PRIVATE_KEY=0x… npm run chain:setup -- --reseed` mints a top-up when the vault can't cover the seed transfers |
 | The relay signer runs out of Sepolia ETH | `curl -s https://relay.derek2403.win/api/relay/chain/status` shows its balance; send it a little from the funder |
