@@ -6,11 +6,38 @@
     "dev": "next dev --hostname 127.0.0.1 --port 3000",
     "build": "next build --webpack",
     "start": "next start --hostname 127.0.0.1 --port 3000",
-    "test": "node --test tests/*.test.mjs"
+    "typecheck": "tsc --noEmit --incremental false",
+    "test": "tsx --test \"lib/**/*.test.ts\" \"tests/**/*.test.ts\"",
+    "agent": "tsx scripts/agent.ts",
+    "demo:fork": "tsx scripts/fork-demo.ts",
+    "demo:e2e": "tsx scripts/demo-e2e.ts",
+    "relay": "tsx scripts/relay.ts",
+    "org:setup": "tsx scripts/org-setup.ts",
+    "demo:reset": "tsx scripts/demo-reset.ts"
   },
   "dependencies": {
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "@base-org/account": "2.5.13",
+    "@metamask/connect-evm": "2.1.1",
+    "@phala/dstack-sdk": "0.5.8",
+    "@rainbow-me/rainbowkit": "2.2.11",
+    "@tanstack/react-query": "5.104.0",
+    "@walletconnect/ethereum-provider": "2.25.0",
+    "next": "16.3.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "viem": "2.56.9",
+    "wagmi": "3.7.7"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "@rainbow-me/rainbowkit": {
+      "wagmi": "$wagmi"
+    }
   }
 }

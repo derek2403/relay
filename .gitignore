@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/package-lock.json
 /.pnp
 .pnp.*
 .yarn/*
@@ -39,3 +40,24 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+!.env.example
+
+# agent scratch scripts
+/.scratch/
+
+# relay meter and decision log
+/.data/
+
+# agent keys made by `npm run agent -- new`
+/.keyless/
+
+# foundry build output
+/contracts/out/
+/contracts/cache/
+/contracts/broadcast/
+
+# demo-workspace: what Codex makes during a demo (the CLI's own files stay tracked)
+/demo-workspace/*
+!/demo-workspace/relay
+!/demo-workspace/AGENTS.md
+!/demo-workspace/.agents/
