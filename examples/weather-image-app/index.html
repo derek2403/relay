@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weather to Image</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --card: #fff; --text: #1c1c1a; --muted: #6b6b66; --line: #e3e3de;
+    --llm: #6d4fd8; --weather: #1f7ac2; --image: #c07a12; --ok: #1b8a4a; --bad: #c8322b; --bad-bg: #fdf0ef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111110; --card: #1b1b19; --text: #ecece8; --muted: #9a9a93; --line: #2e2e2b; --bad-bg: #2a1614; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  #who { color: var(--muted); font-size: 13px; margin: 0 0 20px; overflow-wrap: anywhere; }
+  form { display: flex; gap: 8px; }
+  textarea { flex: 1; min-height: 64px; resize: vertical; padding: 10px 12px; font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  button { padding: 0 20px; font: inherit; font-weight: 600; color: #fff; background: var(--text); border: 0; border-radius: 10px; cursor: pointer; }
+  @media (prefers-color-scheme: dark) { button { color: var(--bg); } }
+  button:disabled { opacity: .5; cursor: default; }
+  ol { list-style: none; padding: 0; margin: 20px 0 0; display: grid; gap: 8px; }
+  li { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .tag { font: 600 12px/1 ui-monospace, monospace; color: #fff; padding: 4px 7px; border-radius: 6px; }
+  .route { font: 12px ui-monospace, monospace; color: var(--muted); overflow-wrap: anywhere; }
+  .detail { font: 13px ui-monospace, monospace; margin-top: 6px; overflow-wrap: anywhere; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .wait { color: var(--muted); }
+  #pending { color: var(--muted); margin: 12px 2px 0; }
+  #error { margin-top: 16px; padding: 12px 14px; border: 1px solid var(--bad); background: var(--bad-bg); border-radius: 10px; }
+  #error strong { color: var(--bad); }
+  figure { margin: 20px 0 0; }
+  figure img { width: 100%; border-radius: 12px; display: block; }
+  #answer { margin-top: 20px; padding: 14px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Weather to Image</h1>
+  <p id="who">…</p>
+  <form id="form">
+    <textarea id="prompt">Get the weather of Tokyo today and generate an image based on it</textarea>
+    <button id="go">Ask</button>
+  </form>
+  <ol id="steps"></ol>
+  <p id="pending" hidden>Working…</p>
+  <div id="error" hidden></div>
+  <figure id="figure" hidden><img id="image" alt="Generated image"></figure>
+  <div id="answer" hidden></div>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const TOOLS = {
+    llm: { color: "var(--llm)", route: "POST /openai/chat/completions" },
+    get_weather: { color: "var(--weather)", route: "GET /weather/forecast" },
+    generate_image: { color: "var(--image)", route: "POST /openai/images/generations" },
+  };
+  let relay = "";
+  const rows = {};
+
+  fetch("/api/whoami").then((r) => r.json()).then((w) => {
+    relay = w.relay ?? "";
+    $("who").textContent = w.name
+      ? `One PAT for ${w.name} · ${relay} · expires ${new Date(w.expires).toLocaleString()}`
+      : "No PAT in .env yet: run the curl in README.md.";
+  });
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  /** One row per relayed call: which API, the relay URL it went to, and what came back. */
+  function step(name, detail, status) {
+    const tool = TOOLS[name];
+    const tag = el("span", "tag", name === "llm" ? "LLM" : name);
+    tag.style.background = tool?.color ?? "var(--muted)";
+    const route = tool ? tool.route.replace(" ", ` ${relay.replace(/^https?:\/\//, "")}`) : "";
+    const head = el("div", "head");
+    head.append(tag, el("span", "route", route));
+    const li = el("li");
+    li.append(head, el("div", "detail", detail));
+    const out = el("div", `detail ${status[0]}`, status[1]);
+    li.append(out);
+    $("steps").append(li);
+    return out;
+  }
+
+  function show(ev) {
+    if (ev.type === "llm") {
+      step("llm", `${ev.model} · ${ev.tokens ?? "?"} tokens`, ["ok", ev.calls ? "→ calls a tool" : "→ writes the answer"]);
+    } else if (ev.type === "call") {
+      rows[ev.id] = step(ev.name, JSON.stringify(ev.args), ["wait", "calling…"]);
+    } else if (ev.type === "result") {
+      Object.assign(rows[ev.id], { className: "detail ok", textContent: `✓ ${ev.summary}` });
+      if (ev.src) {
+        $("image").src = ev.src;
+        $("figure").hidden = false;
+      }
+    } else if (ev.type === "refused") {
+      Object.assign(rows[ev.id], { className: "detail bad", textContent: `✗ refused by the relay: ${ev.status} ${ev.error}: ${ev.reason}` });
+    } else if (ev.type === "answer") {
+      $("answer").textContent = ev.text ?? "";
+      $("answer").hidden = false;
+    } else if (ev.type === "error") {
+      const box = $("error");
+      box.replaceChildren(el("strong", "", `${ev.status} ${ev.error}`), document.createTextNode(` · ${ev.reason}`));
+      if (ev.status === 401) box.append(el("div", "route", "Get a fresh PAT: re-run the curl from README.md (no restart needed)."));
+      box.hidden = false;
+    }
+  }
+
+  $("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("steps").replaceChildren();
+    for (const id of ["error", "figure", "answer"]) $(id).hidden = true;
+    $("go").disabled = true;
+    $("pending").hidden = false;
+    try {
+      const res = await fetch("/api/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: $("prompt").value }) });
+      if (!res.ok) return show(await res.json());
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const lines = (buf += value).split("\n");
+        buf = lines.pop();
+        for (const line of lines) if (line) show(JSON.parse(line));
+      }
+    } catch (err) {
+      show({ type: "error", status: 0, error: "app not reachable", reason: err.message });
+    } finally {
+      $("go").disabled = false;
+      $("pending").hidden = true;
+    }
+  });
+  $("prompt").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("form").requestSubmit();
+  });
+</script>
+</body>
+</html>
