@@ -79,6 +79,8 @@ export type Proposal = {
   events: { at: number; state: ProposalState; detail: string }[];
   createdAt: number;
   expiresAt: number;
+  /** Set by the admin round reset (unix s): kept for the audit trail, left out of lists unless asked for. */
+  archivedAt?: number;
 };
 
 /** Proposals not yet submitted expire after this long. */

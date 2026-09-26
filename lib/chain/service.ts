@@ -231,10 +231,13 @@ function expireDue(deps: ChainDeps, list: Proposal[]): Proposal[] {
 /**
  * GET /chain/proposals: public list (`?all=1` or no token). With an agent
  * token and `scope=mine|subtree`, only that agent's (or its subtree's).
+ * Proposals an admin round reset archived are left out unless `archived=1`.
  */
 export async function handleListProposals(request: Request, deps: ChainDeps = chainDeps()): Promise<Response> {
   const url = new URL(request.url);
   const scope = url.searchParams.get("scope");
+  const withArchived = url.searchParams.get("archived") === "1";
+  const shown = (p: Proposal) => withArchived || !p.archivedAt;
   const down = deps.store.unavailable();
   if (down) return json({ error: "chain_store_unavailable", reason: down }, 503);
   if (scope && url.searchParams.get("all") !== "1") {
@@ -242,11 +245,11 @@ export async function handleListProposals(request: Request, deps: ChainDeps = ch
     const a = await authenticate(request, deps, "proposals");
     if (a instanceof Response) return a;
     const name = a.ctx.name;
-    const list = deps.store.proposals((p) => (scope === "mine" ? p.agent.name === name : inSubtree(p.agent.name, name)));
+    const list = deps.store.proposals((p) => shown(p) && (scope === "mine" ? p.agent.name === name : inSubtree(p.agent.name, name)));
     return json({ proposals: expireDue(deps, list).map(withState) });
   }
   const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit")) || 100));
-  return json({ proposals: expireDue(deps, deps.store.proposals().slice(0, limit)).map(withState) });
+  return json({ proposals: expireDue(deps, deps.store.proposals(shown).slice(0, limit)).map(withState) });
 }
 
 /** GET /chain/proposals/[id] (public). `?allowance=1` adds per-level allowance use (one ENS read). */

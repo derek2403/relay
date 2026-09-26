@@ -52,6 +52,8 @@ export type Proposal = {
   /** Older shape of `block`. */
   rule?: string;
   reason?: string;
+  /** Set when an admin round reset archived it (the list leaves those out unless asked). */
+  archivedAt?: number;
   /** Optional: allowance per level after the reservation/confirmation (base units). */
   allowance?: { name: string; limit: string | null; spent: string; reserved: string; period?: string }[];
 };

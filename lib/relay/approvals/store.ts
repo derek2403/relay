@@ -54,6 +54,8 @@ export type Incident = {
   chainHash: string;
   openedAt: number;
   reviewBy: number;
+  /** Set by the admin round reset (unix s): kept for the audit trail, left out of the list unless asked for. */
+  archivedAt?: number;
 };
 
 export type Suspension = { incidentId: string; name: string; since: number; permanent: boolean };

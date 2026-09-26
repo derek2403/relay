@@ -49,8 +49,9 @@ export function ApprovalsView() {
     clearReview();
   }, [review, clearReview]);
 
-  const incidentList = [...(incidents.data ?? [])].sort((a, b) => Number(isOpen(b.state)) - Number(isOpen(a.state)) || (b.openedAt ?? 0) - (a.openedAt ?? 0));
-  const proposalList = sortProposals(proposals.data ?? []);
+  // Only the current round: items an admin round reset archived stay out (the list routes already leave them out).
+  const incidentList = (incidents.data ?? []).filter((i) => !i.archivedAt).sort((a, b) => Number(isOpen(b.state)) - Number(isOpen(a.state)) || (b.openedAt ?? 0) - (a.openedAt ?? 0));
+  const proposalList = sortProposals((proposals.data ?? []).filter((p) => !p.archivedAt));
   const proposalById = new Map(proposalList.map((p) => [p.id, p]));
 
   return (

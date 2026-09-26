@@ -40,10 +40,21 @@ export type DeployedEscrow = {
   block: number;
   /** MultiBaas alias, e.g. "relay-escrow-1". */
   alias?: string;
+  /** Set by the admin round reset once its deployer's name is gone: no longer offered to that branch. */
+  archivedAt?: number;
 };
 
 /** One planner run (task text, plan, results), kept for the agent's history. */
-export type TaskRun = { id: string; at: number; task: string; plan: unknown; results: unknown; report: string | null };
+export type TaskRun = {
+  id: string;
+  at: number;
+  task: string;
+  plan: unknown;
+  results: unknown;
+  report: string | null;
+  /** Set by the admin round reset (unix s). */
+  archivedAt?: number;
+};
 
 export type ChainStoreData = {
   v: 1;
@@ -296,9 +307,11 @@ export class ChainStore {
     });
   }
 
-  runs(agentName: string): TaskRun[] {
+  /** The agent's runs, oldest first; archived ones (an admin round reset) only with `archived`. */
+  runs(agentName: string, opts: { archived?: boolean } = {}): TaskRun[] {
     this.assertUsable();
-    return Object.hasOwn(this.data.runs, agentName) ? [...this.data.runs[agentName]] : [];
+    const list = Object.hasOwn(this.data.runs, agentName) ? [...this.data.runs[agentName]] : [];
+    return opts.archived ? list : list.filter((r) => !r.archivedAt);
   }
 }
 

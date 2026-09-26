@@ -1,6 +1,6 @@
 // /api/relay/chain/proposals
 //   POST {requestId, action}: prepare a proposal (agent token).
-//   GET ?all=1 (public) or ?scope=mine|subtree (agent token): list proposals.
+//   GET ?all=1 (public) or ?scope=mine|subtree (agent token): list proposals (archived ones only with &archived=1).
 
 import { handleCreateProposal, handleListProposals } from "@/lib/chain/service";
 

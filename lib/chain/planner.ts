@@ -404,7 +404,7 @@ export async function executePlan(deps: ChainDeps, ctx: AgentContext, plan: Plan
       }
       case "submit": {
         // Only proposals of this agent that a human already approved (or that need no approval).
-        const mine = deps.store.proposals((p) => p.agent.name === ctx.name && p.state === "approved");
+        const mine = deps.store.proposals((p) => p.agent.name === ctx.name && p.state === "approved" && !p.archivedAt);
         const targets = s.proposalId ? mine.filter((p) => p.id === s.proposalId) : mine.slice(0, MAX_WRITES);
         if (!targets.length) {
           const own = s.proposalId ? deps.store.proposal(s.proposalId) : null;
@@ -459,7 +459,7 @@ export async function runTask(deps: ChainDeps, ctx: AgentContext, task: string):
   // Only this branch's escrows (the ones validation would resolve), and only with escrow in the grant.
   const escrows = ctx.eff.grant?.contracts.includes("escrow") ? branchEscrows(deps, ctx) : [];
   const recent = deps.store
-    .proposals((p) => p.agent.name === ctx.name)
+    .proposals((p) => p.agent.name === ctx.name && !p.archivedAt)
     .slice(0, 10)
     .map((p) => ({ id: p.id, state: p.state, summary: p.display.summary }));
 

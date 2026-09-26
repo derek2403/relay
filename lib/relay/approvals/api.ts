@@ -319,13 +319,15 @@ const incidentSummary = (i: Incident, now: number) => ({
   reviewBy: i.reviewBy,
   overdue: i.state === "open" && now > i.reviewBy,
   revision: i.revision,
+  ...(i.archivedAt ? { archivedAt: i.archivedAt } : {}),
 });
 
-/** GET /incidents: the public list (no evidence). */
-export function listIncidents(deps: ApprovalsDeps): Response {
+/** GET /incidents: the public list (no evidence). Incidents an admin round reset archived only with `archived`. */
+export function listIncidents(deps: ApprovalsDeps, opts: { archived?: boolean } = {}): Response {
   const now = nowSec(deps);
   const d = deps.store.data;
   const incidents = Object.values(d.incidents)
+    .filter((i) => opts.archived || !i.archivedAt)
     .sort((a, b) => (a.state === "open" ? 0 : 1) - (b.state === "open" ? 0 : 1) || b.openedAt - a.openedAt)
     .slice(0, 200)
     .map((i) => incidentSummary(i, now));

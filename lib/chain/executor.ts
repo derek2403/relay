@@ -195,8 +195,9 @@ export function branchOf(levels: LevelView[], rootOwner: Address | null): string
   return member >= 0 ? levels[member].name : (levels[levels.length - 1]?.name ?? null);
 }
 
-/** Relay-deployed escrows this agent's branch may use. */
-export const branchEscrows = (deps: Pick<ChainDeps, "store">, ctx: Pick<AgentContext, "branch" | "admins">) => deps.store.escrows().filter((e) => escrowInBranch(e, ctx));
+/** Relay-deployed escrows this agent's branch may use (not ones an admin round reset archived). */
+export const branchEscrows = (deps: Pick<ChainDeps, "store">, ctx: Pick<AgentContext, "branch" | "admins">) =>
+  deps.store.escrows().filter((e) => !e.archivedAt && escrowInBranch(e, ctx));
 
 const isRefusal = (x: unknown): x is Refusal => !!x && typeof x === "object" && (x as Refusal).ok === false;
 export { isRefusal };

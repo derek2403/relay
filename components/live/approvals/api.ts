@@ -57,6 +57,8 @@ export type IncidentSummary = {
   reviewBy?: number;
   trigger?: Trigger;
   overdue?: boolean;
+  /** Set when an admin round reset archived it (the list leaves those out unless asked). */
+  archivedAt?: number;
 };
 
 export type Incident = IncidentSummary & {
