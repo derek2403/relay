@@ -1,0 +1,25 @@
+/* Live mode: policies. */
+.live-policies{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+.live-policy-card{display:flex;flex-direction:column;min-width:0}
+.live-policy-card>.status-pill{align-self:flex-start;margin-bottom:14px}
+.live-policy-card h2{margin:0 0 6px}
+.live-policy-card .full-name{margin-bottom:4px}
+.live-policy-card .form-hint{margin-top:16px}
+.live-policy-card .inherited-note{margin-top:4px}
+.live-policy-empty{font-size:13px;margin:14px 0 0}
+.live-policy-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:18px}
+.live-policy-actions>button{width:auto;margin-top:0;padding:12px 16px}
+.live-plan-list{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:8px}
+.live-plan-row{display:flex;justify-content:space-between;align-items:center;gap:12px;border:1px solid #b3a58d;background:#eee8dc;padding:10px 12px}
+.live-plan-row>span{display:flex;flex-direction:column;gap:4px;min-width:0}
+.live-plan-row b{font-weight:600;font-size:14px}
+.live-plan-row small{font:10px/1.6 'Space Mono',monospace;color:var(--muted);overflow-wrap:anywhere}
+.live-plan-row .secondary{flex:none;padding:8px 12px}
+.live-delegate-form .form-row label{margin-top:16px}
+.live-delegate-form input{font-family:'Space Mono',monospace;font-size:12px}
+.live-delegate-state{margin-top:14px}
+.status-pill.live-can{color:#3f5a34;border-color:#3f5a34}
+#livePlanDialog{width:min(560px,calc(100vw - 32px))}
+#livePlanDialog form>label small{font-family:'Space Mono',monospace}
+@media(max-width:900px){.live-policies{grid-template-columns:1fr}}
+@media(max-width:560px){.live-delegate-form .form-row{grid-template-columns:1fr;gap:0}}
