@@ -189,14 +189,73 @@ test("planCall: a client limit that doesn't fit is refused; a missing limit is s
   const sent = JSON.parse(new TextDecoder().decode(fitted.plan.body!));
   assert.equal(sent.max_output_tokens, fitted.plan.injectedLimit);
   assert.ok(fitted.plan.worstUsd <= 0.1 + 1e-12);
-  assert.equal(fitted.plan.injectedLimit, Math.floor((0.1 - fitted.plan.floorUsd) / 10e-6)); // estimated gpt-5 output: $10 / MTok
+  // Half of what the budget left pays for, at the estimated gpt-5 output price ($10 / MTok).
+  assert.equal(fitted.plan.injectedLimit, Math.floor(Math.floor((0.1 - fitted.plan.floorUsd) / 10e-6) / 2));
 
   const uncapped = plan("codex", "openai-responses", { model: "gpt-5", input: "hi" }, null);
   assert.ok(uncapped.ok && uncapped.plan.injectedLimit === 32_000);
+  // A budget that pays for twice RELAY_MAX_OUTPUT_TOKENS still gets all of it.
+  const large = plan("codex", "openai-responses", { model: "gpt-5", input: "hi" }, 0.65);
+  assert.ok(large.ok && large.plan.injectedLimit === 32_000);
 
   const broke = plan("codex", "openai-responses", { model: "gpt-5", input: "hi" }, (MIN_OUTPUT_TOKENS - 1) * 10e-6);
   assert.ok(!broke.ok);
   assert.match(broke.reason, /not enough budget/);
+  assert.equal(plan("codex", "openai-responses", { model: "gpt-5", input: "hi" }, 0).ok, false);
+  // Near the end, a call still gets MIN_OUTPUT_TOKENS while the budget pays for that many.
+  const last = plan("codex", "openai-responses", { model: "gpt-5", input: "hi" }, (MIN_OUTPUT_TOKENS + 100) * 10e-6);
+  assert.ok(last.ok && last.plan.injectedLimit === MIN_OUTPUT_TOKENS);
+});
+
+test("planCall: a limit the relay sets leaves room for a call sent at the same time", () => {
+  // Codex sends a turn and a short title request together, neither with an output limit. The agent's
+  // $0.30 cap has $0.28 left; each call reserves its worst case while it runs.
+  const turn = { model: "gpt-5.3-codex", stream: true, instructions: "x".repeat(40_000), input: [{ role: "user", content: "hi" }] };
+  const title = { model: "gpt-5.3-codex", stream: true, input: [{ role: "user", content: "Write a short title for: hi" }] };
+  for (const [first, second] of [
+    [turn, title],
+    [title, turn],
+  ]) {
+    const a = plan("codex", "openai-responses", first, 0.28);
+    assert.ok(a.ok);
+    const left = 0.28 - a.plan.worstUsd;
+    const b = plan("codex", "openai-responses", second, left);
+    assert.ok(b.ok, b.ok ? "" : b.reason);
+    assert.ok(b.plan.worstUsd <= left + 1e-12, "both worst cases fit the cap together");
+    assert.ok(b.plan.injectedLimit! > 6000, String(b.plan.injectedLimit));
+  }
+});
+
+test("planCall: a client's own output limit is kept as sent, whatever the budget", () => {
+  const body = { model: "gpt-5", input: "hi", max_output_tokens: 20_000 };
+  const r = plan("codex", "openai-responses", body, 0.28);
+  assert.ok(r.ok);
+  assert.equal(r.plan.injectedLimit, null);
+  assert.equal(r.plan.outputTokens, 20_000, "not halved");
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(r.plan.body!)), body);
+  // It is refused only when its own worst case doesn't fit.
+  const tight = plan("codex", "openai-responses", body, 0.19);
+  assert.ok(!tight.ok);
+  assert.match(tight.reason, /lower max_output_tokens/);
+});
+
+test("planCall: a limit the relay sets for n choices halves the budget across all of them; free output never reserves NaN", () => {
+  const chat = plan("codex", "openai-chat", { model: "gpt-5", n: 2, messages: [{ role: "user", content: "hi" }] }, 0.1);
+  assert.ok(chat.ok);
+  assert.equal(chat.plan.injectedLimit, Math.floor(Math.floor((0.1 - chat.plan.floorUsd) / (2 * 10e-6)) / 2));
+  assert.ok(chat.plan.worstUsd <= 0.05 + chat.plan.floorUsd / 2 + 1e-12, "half the budget, for both choices");
+  const tiny = plan("codex", "openai-chat", { model: "gpt-5", n: 2, messages: [] }, (MIN_OUTPUT_TOKENS * 2 - 1) * 10e-6);
+  assert.ok(!tiny.ok);
+  assert.match(tiny.reason, /its input and 512 output tokens could cost/);
+
+  // An output price of $0 (an embedding model sent to /v1/responses): whatever is left past the input pays for any limit.
+  const body = { model: "text-embedding-3-small", input: "hi" };
+  const uncapped = plan("codex", "openai-responses", body, null);
+  assert.ok(uncapped.ok);
+  const exact = plan("codex", "openai-responses", body, uncapped.plan.floorUsd);
+  assert.ok(!exact.ok, "nothing left past the input");
+  const more = plan("codex", "openai-responses", body, uncapped.plan.floorUsd * 2);
+  assert.ok(more.ok && more.plan.injectedLimit === 32_000 && more.plan.worstUsd === more.plan.floorUsd);
 });
 
 test("planCall: chat streams ask for usage; n multiplies the output; legacy max_tokens counts as the limit", () => {

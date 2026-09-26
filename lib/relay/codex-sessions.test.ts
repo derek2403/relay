@@ -12,7 +12,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { codexLoginMessage, codexLogoutMessage, loginSecretHash, newLoginSecret } from "./codex-login";
 import { codexCapUsage, codexLimitHeaders, usagePromo, usedPercent } from "./codex-limits";
 import { CodexSessionStore, deleteCodexSession, handleCodexSessionRequest, postCodexSession } from "./codex-sessions";
-import { charge, decide } from "./policy";
+import { charge, decide, reserve } from "./policy";
 import { MemoryChain, bundle, fakeUpstream, level, makeDeps, nowSec, relayJson, tokenFor } from "./testkit";
 
 const ROOT_OWNER = privateKeyToAccount(generatePrivateKey());
@@ -363,6 +363,91 @@ test("a budget too small for the next call is also a usage limit on a login", as
   assert.equal(r.status, 429, r.text);
   assert.equal(r.res.headers.get("x-codex-promo-message"), `${AGENT} has used its $1.00 Codex cap. Ask ${MEMBER} to raise it`);
   assert.equal(usagePromo({ ...codexCapUsage(d, deps.meter, new Date())!, spent: 0.97 }, "x"), `${AGENT} has $0.03 of its $1.00 Codex cap left, too little for another call. Ask ${MEMBER} to raise it`);
+});
+
+test("a budget held by calls still running says so, and names the level they squeeze", async () => {
+  const { deps } = setup();
+  const { secret } = await register(deps);
+  const d = await decide({ name: AGENT, provider: "codex", signer: agent.address }, deps);
+  const now = new Date();
+  charge(d.levels, "codex", 0.2, deps.meter, now);
+  // Another of the member's agents has a call running that holds $1.799 of the member's $2: the member
+  // ($0.001 free) stops this agent before its own $1 cap ($0.80 free) does.
+  const sibling = reserve(d.levels.slice(0, 3), "codex", 1.799, deps.meter, now);
+  assert.ok(sibling.ok);
+  const u = codexCapUsage(d, deps.meter, now, "held")!;
+  assert.equal(u.name, MEMBER);
+  assert.equal(u.held, 1.799);
+  assert.equal(usedPercent(u), 10, "the used percent counts only settled spend");
+  assert.equal(usagePromo(u, "x"), `${MEMBER} has $1.80 of its $2.00 Codex cap left, but calls still running hold $1.80 of it until they finish. Ask eng.acme.eth to raise it`);
+  // Codex's display stays on settled spend: the agent's own cap, 20% used, while that call runs.
+  const shown = codexCapUsage(d, deps.meter, now)!;
+  assert.equal(shown.name, AGENT);
+  assert.equal(usedPercent(shown), 20);
+  const refused = await codexCall(deps, secret, MEMBER);
+  assert.equal(refused.status, 429, refused.text);
+  assert.equal(refused.res.headers.get("x-codex-promo-message"), usagePromo(u, "x"), "the refusal names the member, whose holds refused it");
+  assert.equal(refused.res.headers.get("x-codex-primary-used-percent"), "10");
+  assert.equal(refused.res.headers.get("x-codex-primary-window-minutes"), "43200", "the member's monthly cap");
+  sibling.reservation.settle(0.01);
+  const settled = codexCapUsage(d, deps.meter, now, "held")!;
+  assert.equal(settled.name, AGENT);
+  assert.equal(settled.held, 0);
+
+  // The agent's own running call holding nearly all it has left: Codex's next call is a usage limit that says why.
+  const running = reserve(d.levels, "codex", 0.798, deps.meter, now);
+  assert.ok(running.ok);
+  const r = await codexCall(deps, secret, MEMBER);
+  assert.equal(r.status, 429, r.text);
+  assert.equal(
+    r.res.headers.get("x-codex-promo-message"),
+    `${AGENT} has $0.80 of its $1.00 Codex cap left, but calls still running hold $0.80 of it until they finish. Ask ${MEMBER} to raise it`,
+  );
+  // It frees up when that call ends, not at the cap's reset: no resets_at ("or try again later"), and the real 20% used.
+  assert.equal(r.json?.error?.type, "usage_limit_reached");
+  assert.equal(r.json?.error?.resets_at, undefined);
+  assert.equal(r.res.headers.get("x-codex-primary-used-percent"), "20");
+  assert.equal(r.res.headers.get("x-codex-primary-reset-at"), String(d.levels[3].expiry), "the footer still shows when the cap itself resets");
+  running.reservation.settle(0.02);
+  assert.equal((await codexCall(deps, secret, MEMBER)).status, 200, "free again once it ends");
+});
+
+test("a refusal reads the holds when it refuses, not when the call arrived", async () => {
+  const { deps } = setup();
+  const { secret } = await register(deps);
+  const d = await decide({ name: AGENT, provider: "codex", signer: agent.address }, deps);
+  const now = new Date();
+  charge(d.levels, "codex", 0.2, deps.meter, now);
+  // Codex sends a turn and a title request together: the other one reserves while this one's body is read.
+  let reading!: () => void;
+  const read = new Promise<void>((r) => (reading = r));
+  let release!: () => void;
+  const released = new Promise<void>((r) => (release = r));
+  const body = new ReadableStream<Uint8Array>(
+    {
+      async pull(c) {
+        reading();
+        await released;
+        c.enqueue(new TextEncoder().encode(RESPONSES_BODY));
+        c.close();
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  const headers = { "content-type": "application/json", authorization: `Bearer ${MEMBER}`, "x-relay-login": secret };
+  const init: RequestInit & { duplex: "half" } = { method: "POST", headers, body, duplex: "half" };
+  const answer = handleCodexSessionRequest(new Request(`${RELAY}/api/relay/codex/login/v1/responses`, init), deps);
+  await read;
+  const other = reserve(d.levels, "codex", 0.799, deps.meter, now);
+  assert.ok(other.ok);
+  release();
+  const res = await answer;
+  assert.equal(res.status, 429, await res.clone().text());
+  assert.equal(
+    res.headers.get("x-codex-promo-message"),
+    `${AGENT} has $0.80 of its $1.00 Codex cap left, but calls still running hold $0.80 of it until they finish. Ask ${MEMBER} to raise it`,
+  );
+  other.reservation.settle(0.01);
 });
 
 test("secret hashes are lowercase 0x sha256 hex, and secrets are 43 base64url characters", () => {

@@ -692,7 +692,8 @@ export async function handleRelayRequest(request: Request, providerParam: string
     log({ allowed: false, reason, name });
     // A spent count limit (requests) isn't the dollar cap the headers describe: Codex shows the reason itself.
     const countLimit = / limit \(|fewer than this call/.test(reason);
-    return usageLimitResponse(countLimit ? null : capUsage, reason, Math.floor(now.getTime() / 1000));
+    // Read again now, holds included: a call that started since this one arrived may be what refused it.
+    return usageLimitResponse(countLimit ? null : codexCapUsage(decision, meter, now, "held"), reason, Math.floor(now.getTime() / 1000));
   };
   if (leaf.nbf && issuedAt < leaf.nbf) {
     return refuse(401, "token revoked", `tokens for ${leaf.name} issued before ${new Date(leaf.nbf * 1000).toISOString()} are refused (relay.nbf); sign a new one`);

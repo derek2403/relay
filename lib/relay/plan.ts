@@ -7,7 +7,8 @@
 // - a limit the client set is kept; the call is refused if its worst case
 //   doesn't fit the budget left
 // - with no limit (OpenAI allows that) the relay sets one: the smaller of
-//   RELAY_MAX_OUTPUT_TOKENS and what the budget left can pay for
+//   RELAY_MAX_OUTPUT_TOKENS and what half the budget left can pay for, so a
+//   call sent at the same time still fits (Codex sends two per turn)
 // OpenAI Chat Completions streams also get stream_options.include_usage, so
 // the final chunk reports usage (input tokens are otherwise never reported).
 //
@@ -120,15 +121,21 @@ export function planCall(opts: {
     // No limit set: pick one the budget can pay for. (Anthropic requires max_tokens, so a request
     // without it fails upstream and is only reserved at the default.)
     const affordable = available === null ? Infinity : Math.floor((available - floorUsd) / (price.output * n));
-    limit = Math.min(opts.maxOutputTokens, affordable);
-    if (limit < MIN_OUTPUT_TOKENS) {
+    // Written so NaN (free output with exactly the input's cost left) is refused, never reserved.
+    if (!(affordable >= MIN_OUTPUT_TOKENS)) {
       return {
         ok: false,
         status: 403,
         error: "denied",
-        reason: `not enough budget left for this call: ${usd(Math.max(0, available ?? 0))} left, the input alone could cost ${usd(floorUsd)}`,
+        reason: `not enough budget left for this call: ${usd(Math.max(0, available ?? 0))} left, but its input and ${MIN_OUTPUT_TOKENS * n} output tokens could cost ${usd(floorUsd + MIN_OUTPUT_TOKENS * n * price.output)}`,
       };
     }
+    // Half of it, not all: a call sent at the same time (Codex sends a turn and a title request
+    // together) must still fit. A share f leaves the later of two calls f·(1−f) of the output budget
+    // in either order, most at ½. The only floor is MIN_OUTPUT_TOKENS, so refusals start where they
+    // did (a bigger one would let one call take all of a small budget again). The limit still fits
+    // what's left, so no cap can be exceeded.
+    limit = Math.min(opts.maxOutputTokens, Math.max(MIN_OUTPUT_TOKENS, Math.floor(affordable / 2)));
     injectedLimit = limit;
     out = { ...out, [field]: limit };
   }

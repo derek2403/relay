@@ -100,7 +100,11 @@ before(async () => {
         }
         return res.end("data: [DONE]\n\n");
       }
-      if (url === "/v1/responses") return json(200, { object: "response", model: "gpt-5", usage: { input_tokens: 100, output_tokens: 10 } });
+      if (url === "/v1/responses") {
+        const done = () => json(200, { object: "response", model: "gpt-5", usage: { input_tokens: 100, output_tokens: 10 } });
+        if (mode === "hold") return void releases.push(() => !res.destroyed && done());
+        return done();
+      }
       if (url === "/user" || url.startsWith("/repos/")) return json(200, { login: "acme-bot" });
       if (url === "/graphql/v2") return json(200, { data: {} });
       return json(404, { error: "not found" });
@@ -352,12 +356,30 @@ test("charging: without an output limit, the relay sets one the budget can pay f
   const r = await call(d, "codex", "/v1/responses", { body: { model: "gpt-5", input: "hello" } });
   assert.equal(r.status, 200);
   const limit = JSON.parse(lastSeen().body).max_output_tokens;
-  // About $0.05 of gpt-5 output at the estimated $10 / MTok.
-  assert.ok(limit > 4000 && limit < 5000, String(limit));
+  // Half of what $0.05 pays for at the estimated gpt-5 output price ($10 / MTok): the rest stays free for another call.
+  assert.ok(limit > 2400 && limit < 2500, String(limit));
   const tiny = deps({ leaf: bundle(ALL, { codex: 0.001 }) });
   const refused = await call(tiny, "codex", "/v1/responses", { body: { model: "gpt-5", input: "hello" } });
   assert.equal(refused.status, 403);
   assert.match(refused.reason!, /not enough budget left/);
+});
+
+test("charging: two calls at once without output limits both fit what's left of a small cap", async () => {
+  // Codex sends a turn and a title request together; $0.28 of the agent's cap is left.
+  const d = deps({ leaf: bundle(ALL, { codex: 0.28 }) });
+  const kr = await token();
+  const before = seen.length;
+  const body = { model: "gpt-5", input: "hi" };
+  const calls = [0, 1].map(() => call(d, "codex", "/v1/responses", { body, kr, headers: { "x-test": "hold" } }));
+  // Both reach OpenAI, each holding its reservation, before either finishes.
+  for (let i = 0; i < 300 && seen.length < before + 2; i++) await new Promise((r) => setTimeout(r, 10));
+  releases.splice(0).forEach((r) => r());
+  const [a, b] = await Promise.all(calls);
+  assert.deepEqual([a.status, b.status], [200, 200], b.reason ?? a.reason ?? "");
+  const limits = seen.slice(before).map((s) => JSON.parse(s.body).max_output_tokens as number).sort((x, y) => y - x);
+  // The first takes half of what's left, the second half of the rest.
+  assert.ok(limits[0] > 13_000 && limits[1] > 6_000, String(limits));
+  assert.ok((limits[0] + limits[1]) * 10e-6 < 0.28, "together they fit the cap");
 });
 
 test("disconnect: a stream cut before any response is charged its estimated input", async () => {
