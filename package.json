@@ -9,8 +9,6 @@
     "typecheck": "tsc --noEmit --incremental false",
     "test": "tsx --test \"lib/**/*.test.ts\" \"tests/**/*.test.ts\"",
     "agent": "tsx scripts/agent.ts",
-    "demo:fork": "tsx scripts/fork-demo.ts",
-    "demo:e2e": "tsx scripts/demo-e2e.ts",
     "relay": "tsx scripts/relay.ts",
     "org:setup": "tsx scripts/org-setup.ts",
     "org:seed": "tsx scripts/org-seed.ts",

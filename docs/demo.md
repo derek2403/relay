@@ -176,26 +176,6 @@ token it also clears removed names from the relay's decision log. The company, d
 launch squad stay. You can reuse the label `derek`: a re-registered name starts with fresh limits and no
 leftover spend.
 
-## Rehearsing the whole flow locally
-
-```bash
-npm run demo:e2e
-```
-
-This runs every step above on a local anvil fork of Sepolia, with the real relay (`next start` on port 3314), the
-real `./relay` CLI and the real Codex CLI, and checks each result. OpenAI is a fake server, so it needs no Sepolia
-ETH and no real key. It needs Foundry's `anvil` (or `ANVIL_BIN`) and takes about three minutes.
-
-It doesn't touch the real OpenAI. Before the demo, check your key and models once on Sepolia (2 minutes), after
-adding yourself in the portal:
-
-```bash
-./relay codex exec "say hi"
-./relay subagent create image --images 1
-./relay image --as image --prompt test --out /tmp/test.png
-```
-
-Then run `demo:reset` again.
 
 ## What's real and what's simplified
 

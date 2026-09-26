@@ -71,7 +71,7 @@ npm run build       # next build --webpack
 - `components/{shell,tree,details,activity,ui}`: presentational components fed by `lib/view-model.ts`, which
   `lib/live/view.ts` builds from ENS and relay data.
 - `styles/*.css`: the khaki design, imported in cascade order by `app/layout.tsx`.
-- `scripts/`: the `./relay` CLI, `org:setup`, `demo:reset`, `demo:e2e`, `agent`, `demo:fork`.
+- `scripts/`: the `./relay` CLI, `org:seed`, `org:setup`, `demo:reset`, `agent`.
 - `contracts/`: the SessionMinter (Foundry; `forge install foundry-rs/forge-std --no-git` first).
 
 More: [docs/relay-server.md](docs/relay-server.md) (relay, catalog, limits, endpoints, CLI),

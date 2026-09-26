@@ -134,12 +134,7 @@ agent that keeps its own key in `.keyless/agent.json`.
 |---|---|---|
 | `npm run org:setup` | Registers `<org>.eth` if needed and builds 3 departments, 6 teams, the launch squad (`launch.dev.eng.<org>.eth`), its non-canonical alias `launch.growth.marketing.<org>.eth` and member `mia`. Every level gets its own registry; every bundle lives on the admin's one resolver. Safe to re-run. Prints `RELAY_ROOT_NAME` and `RELAY_ROOT_OWNER`. | `ADMIN_PRIVATE_KEY`, `ORG_LABEL` (or `RELAY_ROOT_NAME`), Sepolia ETH |
 | `npm run demo:reset` | Unregisters every name added under the teams (keeps launch, its alias and mia), calls `POST /api/relay/admin/reset`, and deletes `~/.relay/` (asks; `-- --yes` or `-- --keep-home`) | `ADMIN_PRIVATE_KEY`, `ORG_LABEL` or `RELAY_ROOT_NAME`, `RELAY_ADMIN_TOKEN`, `RELAY_URL` or `RELAY_PUBLIC_URL` |
-| `npm run demo:e2e` | The whole demo on an anvil fork with assertions: org-setup, `./relay` init/login/codex/subagents/image, funder, live kill, reset. Builds the app (`next build --webpack`, skipped when `.next` is newer than the source; `-- --build` forces it) and serves it with `next start` on port 3314 with a fake OpenAI. | Foundry's `anvil` (or `ANVIL_BIN`), the Codex CLI; about 3 minutes |
-| `npm run demo:fork` | The relay's rules against the real ENSv2 contracts on an anvil fork, calling the route handlers in-process | `anvil` |
 
-`demo:e2e` uses anvil on `127.0.0.1:8614` (`E2E_FORK_PORT`) and the relay on `3314` (`E2E_RELAY_PORT`);
-`FORK_URL` picks the RPC it forks, `KEEP=1` keeps its temp folder, `VERBOSE=1` prints every command.
-`next dev` writes to `.next/dev`, so the build doesn't disturb a running dev server.
 
 ## Checks
 
