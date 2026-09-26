@@ -14,7 +14,21 @@ import { AttestationCard } from "./Attestation";
 import { CredentialDialog } from "./CredentialDialog";
 import { CustomServiceDialog, type CustomDialogState } from "./CustomServiceDialog";
 import { OwnerBar, useOwnerAuth } from "./OwnerAuth";
-import { canManage, customPill, formatUpdated, groupCatalog, keysFor, markFor, secretDisplay, sharedWith, sourceText, statusPill, type Pill } from "./logic";
+import {
+  canManage,
+  customPill,
+  formatUpdated,
+  groupCatalog,
+  isKeyless,
+  keysFor,
+  markFor,
+  secretDisplay,
+  sharedWith,
+  sourceText,
+  statusPill,
+  upstreamHost,
+  type Pill,
+} from "./logic";
 
 export const CREDENTIALS_QUERY_KEY = ["relay-credentials"] as const;
 
@@ -152,7 +166,23 @@ function CatalogCard({ entry, creds, pill, authorized, onEdit }: CardProps) {
         </span>
         {entry.label}
       </h2>
-      {!entry.keyEnv ? (
+      {isKeyless(entry) ? (
+        <>
+          <div className="info-row">
+            <span>Upstream</span>
+            <b className="lp-mono">{upstreamHost(entry.upstream)}</b>
+          </div>
+          <div className="info-row">
+            <span>Key</span>
+            <b>None needed</b>
+          </div>
+          <div className="info-row">
+            <span>Limits</span>
+            <b>Requests · no $ cap</b>
+          </div>
+          {entry.note && <p>{entry.note}</p>}
+        </>
+      ) : !entry.keyEnv ? (
         <p>Answered by the relay itself. No key needed.</p>
       ) : (
         <>

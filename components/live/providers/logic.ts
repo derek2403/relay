@@ -16,11 +16,28 @@ export const markFor = providerMark;
 export type PillTone = "live" | "ok" | "idle" | "builtin" | "stored";
 export type Pill = { text: string; tone: PillTone };
 
+/** The relay answers it itself (the test API): no key and no upstream. */
+export const isBuiltIn = (entry: Pick<CatalogEntry, "keyEnv" | "upstream">) => !entry.keyEnv && entry.upstream === null;
+
+/** A public API the relay forwards to without any key (Open-Meteo weather). */
+export const isKeyless = (entry: Pick<CatalogEntry, "keyEnv" | "upstream">) => !entry.keyEnv && entry.upstream !== null;
+
+/** "api.open-meteo.com" for display; the raw value if it isn't a URL. */
+export function upstreamHost(upstream: string | null): string {
+  if (!upstream) return "";
+  try {
+    return new URL(upstream).host;
+  } catch {
+    return upstream;
+  }
+}
+
 /**
  * Status pill for a catalog API. Every catalog API is routed by the relay; the pill says
  * whether it has a key. Codex is the relay's main API, so a configured Codex reads "Live".
  */
-export function statusPill(entry: Pick<CatalogEntry, "id" | "keyEnv">, configured: boolean | undefined): Pill {
+export function statusPill(entry: Pick<CatalogEntry, "id" | "keyEnv" | "upstream">, configured: boolean | undefined): Pill {
+  if (isKeyless(entry)) return { text: "No key needed · routed", tone: "ok" };
   if (!entry.keyEnv) return { text: "Test API · no key needed", tone: "builtin" };
   if (configured === undefined) return { text: "Checking…", tone: "idle" };
   if (!configured) return { text: "Routed · no key", tone: "idle" };

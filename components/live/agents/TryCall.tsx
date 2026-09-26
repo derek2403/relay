@@ -8,11 +8,23 @@ import { formatError } from "@/lib/ens/errors";
 import { useNow } from "@/lib/hooks/useNow";
 import { useRelayAgentKeys } from "@/lib/hooks/useRelayAgents";
 import { useRelayLog, useRelayPolicy } from "@/lib/hooks/useRelayApi";
-import { agentToken, errorText, needsSignIn, nowSec, sampleRequest, usd } from "@/lib/relay/browser";
+import { agentToken, errorText, needsSignIn, nowSec, usd } from "@/lib/relay/browser";
 import { PROVIDERS } from "@/lib/relay/bundle";
 import type { LogEntry } from "@/lib/relay/types";
 
-import { type CallResult, classifyResponse, keysUnderRoot, matchLogEntry, relayUrl, requestHeaders, sendsBody, sessionCheck, tryTokenExpiry } from "./model";
+import {
+  type CallResult,
+  classifyResponse,
+  keysUnderRoot,
+  matchLogEntry,
+  relayUrl,
+  requestHeaders,
+  sendsBody,
+  sessionCheck,
+  tryMethods,
+  trySample,
+  tryTokenExpiry,
+} from "./model";
 
 type Req = { method: string; path: string; body: string };
 
@@ -34,7 +46,7 @@ export function TryCall({ log }: { log: { data: LogEntry[] | undefined; refetch:
   // The relay's view of the chosen name: is it still live, and when does it end?
   const policy = useRelayPolicy(key?.name ?? null);
   const { leaf, expiry, ended } = sessionCheck(policy.data?.levels ?? [], key?.name, now || nowSec());
-  const sample = sampleRequest(provider);
+  const sample = trySample(provider);
   const req: Req = edits[provider] ?? { method: sample.method, path: sample.path, body: sample.body ?? "" };
   const setReq = (patch: Partial<Req>) => setEdits({ ...edits, [provider]: { ...req, ...patch } });
   const providers: { id: string; label: string; configured?: boolean }[] = live.status?.providers.length ? live.status.providers : PROVIDERS;
@@ -109,7 +121,7 @@ export function TryCall({ log }: { log: { data: LogEntry[] | undefined; refetch:
           <label>
             Method
             <select value={req.method} onChange={(e) => setReq({ method: e.target.value })}>
-              {["GET", "POST"].map((m) => (
+              {tryMethods(provider).map((m) => (
                 <option key={m}>{m}</option>
               ))}
             </select>

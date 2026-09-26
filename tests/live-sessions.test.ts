@@ -6,6 +6,12 @@ import {
   durationSeconds,
   formatTtl,
   isResumable,
+  patCommand,
+  patEnv,
+  patEnvPreview,
+  patNameOk,
+  patWeatherCheck,
+  relayOrigin,
   reservedSubagentLabels,
   sessionExpiry,
   sessionLabel,
@@ -125,4 +131,42 @@ test("agent top-up: double what's missing, at least the minimum", () => {
   assert.equal(topUpAmount(100n, 0n, 50n), 200n);
   assert.equal(topUpAmount(100n, 180n, 50n), 50n);
   assert.equal(topUpAmount(100n, 500n, 50n), 50n);
+});
+
+test("PAT for apps: relay origin, curl snippet and .env lines", () => {
+  // The relay's public URL wins; a loopback one seen from another host falls back to the page.
+  assert.equal(relayOrigin("https://relay.derek2403.win/api/relay", "https://relay.derek2403.win"), "https://relay.derek2403.win");
+  assert.equal(relayOrigin("http://127.0.0.1:3000/api/relay", "https://relay.example.com"), "https://relay.example.com");
+  assert.equal(relayOrigin("http://127.0.0.1:3000/api/relay", "http://localhost:3000"), "http://127.0.0.1:3000");
+  assert.equal(relayOrigin(undefined, "http://127.0.0.1:3000"), "http://127.0.0.1:3000");
+  assert.equal(relayOrigin("https://a$b.example/api/relay", null), null); // nothing a shell could trip on
+  assert.equal(relayOrigin("ftp://relay.example", null), null);
+  assert.equal(relayOrigin(null, null), null);
+
+  assert.equal(patNameOk("derek.cloudops.dev.sodalabs.eth"), true);
+  assert.equal(patNameOk("codex.derek.cloudops.dev.sodalabs.eth"), true);
+  for (const bad of ["eth", "Derek.sodalabs.eth", "derek..eth", "de rek.eth", "derek.eth;rm", `${"a".repeat(252)}.eth`, "", null, undefined]) {
+    assert.equal(patNameOk(bad), false, String(bad));
+  }
+
+  const origin = "https://relay.derek2403.win";
+  assert.equal(
+    patCommand(origin, "derek.cloudops.dev.sodalabs.eth"),
+    'curl -fsSL "https://relay.derek2403.win/pat?name=derek.cloudops.dev.sodalabs.eth" | sh >> .env',
+  );
+  assert.equal(
+    patEnv(origin, "codex.derek.acme.eth", "kr1.abc.def", 1_790_000_000),
+    [
+      "# Keyless Relay PAT for codex.derek.acme.eth · expires 2026-09-21T14:13:20.000Z · https://relay.derek2403.win",
+      "RELAY_BASE_URL=https://relay.derek2403.win/v1",
+      "RELAY_API_KEY=kr1.abc.def",
+      "OPENAI_BASE_URL=https://relay.derek2403.win/v1/openai",
+      "OPENAI_API_KEY=kr1.abc.def",
+    ].join("\n"),
+  );
+  assert.deepEqual(
+    patEnvPreview(origin).split("\n").map((l) => l.split("=")[0]),
+    ["RELAY_BASE_URL", "RELAY_API_KEY", "OPENAI_BASE_URL", "OPENAI_API_KEY"],
+  );
+  assert.match(patWeatherCheck, /\$RELAY_BASE_URL\/weather\/forecast\?latitude=35\.68&longitude=139\.69/);
 });

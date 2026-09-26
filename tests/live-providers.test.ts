@@ -10,6 +10,8 @@ import {
   customPill,
   formatUpdated,
   groupCatalog,
+  isBuiltIn,
+  isKeyless,
   keysFor,
   markFor,
   messageFor,
@@ -21,6 +23,7 @@ import {
   sharedWith,
   sourceLabel,
   statusPill,
+  upstreamHost,
 } from "../components/live/providers/logic";
 import { CATALOG, catalogEntry } from "../lib/relay/catalog";
 import { providerMarks } from "../lib/provider-marks";
@@ -47,6 +50,9 @@ test("status pill: codex live, others routed, mock is the test API", () => {
   assert.equal(statusPill(catalogEntry("slack"), undefined).text, "Checking…");
   assert.equal(statusPill(catalogEntry("mock"), false).tone, "builtin");
   assert.equal(statusPill(catalogEntry("mock"), false).text, "Test API · no key needed");
+  const weather = CATALOG.find((e) => e.id === "weather")!;
+  assert.deepEqual(statusPill(weather, true), { text: "No key needed · routed", tone: "ok" });
+  assert.deepEqual(statusPill(weather, undefined), { text: "No key needed · routed", tone: "ok" });
   assert.equal(customPill(true).text, "Stored · not routed");
   assert.equal(customPill(false).text, "No credentials");
 });
@@ -58,11 +64,31 @@ test("every catalog API has a brand mark or stroke icon", () => {
   }
   assert.equal(markFor("claude"), "anthropic");
   assert.equal(markFor("openai-images"), "openai");
+  // Weather has no brand mark: its own sun-and-cloud stroke icon.
+  assert.equal(markFor("weather"), "weather");
+  assert.ok(iconPaths.weather && !providerMarks.weather);
+});
+
+test("keyless APIs: the test API is built in, weather is routed to its upstream", () => {
+  const byId = (id: string) => CATALOG.find((e) => e.id === id)!;
+  assert.equal(isBuiltIn(byId("mock")), true);
+  assert.equal(isKeyless(byId("mock")), false);
+  assert.equal(isKeyless(byId("weather")), true);
+  assert.equal(isBuiltIn(byId("weather")), false);
+  assert.equal(isKeyless(byId("github")), false);
+  assert.equal(upstreamHost(byId("weather").upstream), "api.open-meteo.com");
+  assert.equal(upstreamHost(null), "");
+  assert.equal(upstreamHost("not a url"), "not a url");
 });
 
 test("catalog groups keep category order and cover every API", () => {
   const groups = groupCatalog();
-  assert.deepEqual(groups.map((g) => g.category), ["ai", "dev", "marketing", "business", "test"]);
+  assert.deepEqual(groups.map((g) => g.category), ["ai", "dev", "marketing", "business", "data", "test"]);
+  assert.deepEqual(
+    groups.find((g) => g.category === "data")!.entries.map((e) => [e.id, e.category]),
+    [["weather", "data"]],
+  );
+  assert.equal(groups.find((g) => g.category === "data")!.label, "Data");
   assert.equal(groups.reduce((n, g) => n + g.entries.length, 0), CATALOG.length);
 });
 

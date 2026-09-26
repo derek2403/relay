@@ -238,7 +238,8 @@ function unitOf(entry: CatalogEntry): ProviderView["unit"] {
 }
 
 function providerStatus(entry: CatalogEntry, configured: boolean | undefined): string {
-  if (!entry.keyEnv) return "Test API · no key needed";
+  // Keyless public APIs (weather) are routed to their upstream; only the test API is answered by the relay.
+  if (!entry.keyEnv) return entry.upstream ? "No key needed · routed" : "Test API · no key needed";
   if (configured === undefined) return "Relay not reached";
   return configured ? "Relay key set" : "No key on the relay";
 }
@@ -345,7 +346,7 @@ export function liveGrants({ lineage, policyLevels, configured }: GrantsInput): 
 
       const key = configured(id);
       const notes = [
-        !entry.keyEnv ? "Test API" : key === undefined ? null : key ? "Relay key set" : "No key on the relay",
+        !entry.keyEnv ? (entry.upstream ? "No key needed" : "Test API") : key === undefined ? null : key ? "Relay key set" : "No key on the relay",
         blockedBy ? `blocked by ${blockedBy}` : null,
         decision && !decision.allowed && !blockedBy ? decision.reason : null,
         !levels && (cap !== undefined || max !== undefined) ? "spend hidden" : null,

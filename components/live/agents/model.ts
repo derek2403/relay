@@ -4,7 +4,7 @@
 import { type Address, isAddressEqual } from "viem";
 
 import { providerMark } from "@/lib/provider-marks";
-import { type LiveState, type SampleRequest, type StoredAgentKey, depthOf, formatDuration, isNever, parentOf, usd } from "@/lib/relay/browser";
+import { type LiveState, SAMPLE_REQUESTS, type SampleRequest, type StoredAgentKey, depthOf, formatDuration, isNever, parentOf, sampleRequest, usd } from "@/lib/relay/browser";
 import { type ProviderId, catalogEntry, countUnit, isProviderId } from "@/lib/relay/catalog";
 import type { LevelView, LogEntry } from "@/lib/relay/types";
 
@@ -27,6 +27,25 @@ export const keysUnderRoot = (keys: StoredAgentKey[], root: string | null) =>
 /** Expiry for a one-off test token: now + 10 min, capped at the session's end. */
 export const tryTokenExpiry = (now: number, sessionExpiry: number | null, ttl = TRY_TOKEN_TTL_SEC) =>
   sessionExpiry !== null ? Math.min(now + ttl, sessionExpiry) : now + ttl;
+
+/**
+ * Starting requests for APIs lib/relay/browser has no sample for yet (its SAMPLE_REQUESTS win).
+ * Weather is Open-Meteo's read-only forecast API: Tokyo's current conditions, no key needed.
+ */
+export const EXTRA_SAMPLES: Readonly<Record<string, SampleRequest>> = {
+  weather: {
+    method: "GET",
+    path: "/v1/forecast?latitude=35.68&longitude=139.69&current=temperature_2m,weather_code",
+    body: null,
+    auth: "bearer",
+  },
+};
+
+/** The request "Try a call" starts from for a provider. */
+export const trySample = (provider: string): SampleRequest => SAMPLE_REQUESTS[provider] ?? EXTRA_SAMPLES[provider] ?? sampleRequest(provider);
+
+/** Methods "Try a call" offers: read-only APIs (the relay forwards only GET for them) get GET alone. */
+export const tryMethods = (provider: string): string[] => (provider === "weather" ? ["GET"] : ["GET", "POST"]);
 
 export const sendsBody = (method: string, body: string) => method !== "GET" && method !== "HEAD" && body.trim() !== "";
 

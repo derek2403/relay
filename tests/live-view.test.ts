@@ -267,6 +267,10 @@ test("liveProviders covers the catalog with marks and key status", () => {
   assert.equal(by("github").unit, "access");
   assert.equal(by("codex").unit, "usd");
   assert.equal(by("mock").statusText, "Test API · no key needed");
+  assert.equal(by("weather").statusText, "No key needed · routed");
+  assert.equal(by("weather").mark, "weather");
+  assert.equal(by("weather").unit, "access"); // count caps only
+  assert.equal(by("weather").configured, true);
   assert.equal(providerMark("github"), "github");
   assert.equal(liveProviders(undefined).find((p) => p.id === "codex")!.statusText, "Relay not reached");
 });
@@ -334,6 +338,25 @@ test("liveGrants shows limits, spend and parent blocks", () => {
   assert.equal(unpriced.note, "No key on the relay");
 
   assert.deepEqual(liveGrants({ lineage: [{ name: "acme.eth", bundle: null }], policyLevels: null, configured }), []);
+});
+
+test("liveGrants: weather is keyless, so it notes no key and shows a request count", () => {
+  const bundle = (keys: string[], maxes: Record<string, number> = {}): Bundle => ({ keys: keys as never, caps: {}, maxes, period: "month" });
+  const lineage = [
+    { name: "acme.eth", bundle: bundle(["weather", "codex"]) },
+    { name: "derek.acme.eth", bundle: bundle(["weather"], { weather: 20 }) },
+  ];
+  const [weather] = liveGrants({
+    lineage,
+    policyLevels: [
+      { name: "acme.eth", spent: {} },
+      { name: "derek.acme.eth", spent: {}, used: { weather: 5 } },
+    ],
+    configured: () => undefined,
+  });
+  assert.equal(weather.providerId, "weather");
+  assert.equal(weather.note, "No key needed");
+  assert.deepEqual(weather.usage, { pct: 25, usedLabel: "5 requests", leftLabel: "15 requests" });
 });
 
 test("liveMetrics and levelSpend", () => {

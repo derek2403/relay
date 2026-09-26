@@ -86,6 +86,10 @@ test("inputs: $ caps only for dollarCaps APIs, count limits for all", () => {
   }
   assert.equal(row(m, "openai-images")!.unit, "images");
   assert.equal(row(m, "github")!.unit, "requests");
+  // Weather: a count cap only (no $), under its own "Data" heading, with its sun-and-cloud icon.
+  const weather = row(m, "weather")!;
+  assert.deepEqual([weather.showCap, weather.showMax, weather.unit, weather.icon], [false, true, "requests", "weather"]);
+  assert.deepEqual(m.groups.find((g) => g.rows.some((r) => r.id === "weather"))!.label, "Data");
   assert.equal(row(m, "codex")!.capPlaceholder, "no cap");
   assert.equal(row(m, "codex")!.maxPlaceholder, "no limit");
   assert.equal(m.loading, false);

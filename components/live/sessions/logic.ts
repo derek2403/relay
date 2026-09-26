@@ -177,3 +177,65 @@ export function topUpAmount(need: bigint, balance: bigint, min: bigint): bigint 
   const missing = need * 2n - balance;
   return missing > min ? missing : min;
 }
+
+// --- PAT for apps --------------------------------------------------------------------------
+
+/**
+ * Names GET /pat accepts (app/pat/route.ts): lowercase a-z, 0-9 and - labels, dot-separated, at most
+ * 255 characters. Only such names get a curl snippet, so the copied command never needs escaping.
+ */
+const PAT_NAME = /^(?=.{1,255}$)[a-z0-9-]+(?:\.[a-z0-9-]+)+$/;
+
+export const patNameOk = (name: string | null | undefined): name is string => !!name && PAT_NAME.test(name);
+
+const PLAIN_HOST = /^(?:[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*|\[[0-9A-Fa-f:.]+\])$/;
+const LOOPBACK = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\]|0\.0\.0\.0)$/i;
+
+/** The http(s) origin of a URL whose host is plain (nothing a shell could trip on), else null. */
+function plainOrigin(raw: string | null | undefined): URL | null {
+  if (!raw?.trim()) return null;
+  try {
+    const url = new URL(raw.trim());
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password || !PLAIN_HOST.test(url.hostname)) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The relay's public origin for snippets: the origin of the status `baseUrl` (RELAY_PUBLIC_URL +
+ * /api/relay), else the page's. A loopback relay URL seen from another host means the relay's
+ * RELAY_PUBLIC_URL is the local default, so the page's origin is the one that works (like /install).
+ */
+export function relayOrigin(baseUrl: string | null | undefined, pageOrigin: string | null | undefined): string | null {
+  const configured = plainOrigin(baseUrl);
+  const page = plainOrigin(pageOrigin);
+  if (configured && page && LOOPBACK.test(configured.hostname) && !LOOPBACK.test(page.hostname)) return page.origin;
+  return (configured ?? page)?.origin ?? null;
+}
+
+/** `curl … /pat?name=<name> | sh >> .env`: the relay CLI on this laptop signs a PAT with the key that owns `name`. */
+export const patCommand = (origin: string, name: string) => `curl -fsSL "${origin}/pat?name=${name}" | sh >> .env`;
+
+/** The .env lines `relay pat` prints, for a PAT already signed (e.g. by an agent key kept in this browser). */
+export function patEnv(origin: string, name: string, token: string, exp: number): string {
+  return [
+    `# Keyless Relay PAT for ${name} · expires ${new Date(exp * 1000).toISOString()} · ${origin}`,
+    `RELAY_BASE_URL=${origin}/v1`,
+    `RELAY_API_KEY=${token}`,
+    `OPENAI_BASE_URL=${origin}/v1/openai`,
+    `OPENAI_API_KEY=${token}`,
+  ].join("\n");
+}
+
+/** What `patCommand` appends, with the token elided. */
+export const patEnvPreview = (origin: string) =>
+  [`RELAY_BASE_URL=${origin}/v1`, "RELAY_API_KEY=kr1…", `OPENAI_BASE_URL=${origin}/v1/openai`, "OPENAI_API_KEY=kr1…"].join("\n");
+
+/** A free call that proves the PAT works: Tokyo's current weather through the relay's OpenAI-style /v1 routes. */
+export const patWeatherCheck = [
+  "set -a; . ./.env; set +a",
+  'curl -s "$RELAY_BASE_URL/weather/forecast?latitude=35.68&longitude=139.69&current=temperature_2m,weather_code" \\',
+  '  -H "Authorization: Bearer $RELAY_API_KEY"',
+].join("\n");

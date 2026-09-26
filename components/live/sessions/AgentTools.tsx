@@ -24,7 +24,7 @@ import { useLive } from "../LiveContext";
 import { TxButton } from "../tx/TxButton";
 import { TxStatus } from "../tx/TxStatus";
 import { txBusyLabel } from "../tx/txView";
-import { formatTtl, tokenExpiry, topUpAmount } from "./logic";
+import { formatTtl, patEnv, relayOrigin, tokenExpiry, topUpAmount } from "./logic";
 import { Snippet } from "./Snippet";
 
 // Primary names stay on ENSv1 at launch: the agent key calls setName on the
@@ -38,7 +38,7 @@ export function AgentTools({ agent, agentKey, onForgot }: { agent: AgentInfo; ag
   const live = useLive();
   const agents = useRelayAgentKeys();
   const now = useNow();
-  const [token, setToken] = useState<{ value: string; exp: number; baseUrl: string } | null>(null);
+  const [token, setToken] = useState<{ value: string; exp: number; baseUrl: string; origin: string | null } | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [confirmForget, setConfirmForget] = useState(false);
   const clock = now || nowSec();
@@ -52,7 +52,7 @@ export function AgentTools({ agent, agentKey, onForgot }: { agent: AgentInfo; ag
       const value = await agentToken(agentKey, agent.name, agent.expiry!, maxTtl);
       // Read in the click handler, never during render (hydration).
       const baseUrl = live.status?.baseUrl ?? `${window.location.origin}/api/relay`;
-      setToken({ value, exp: parseToken(value).payload.exp, baseUrl });
+      setToken({ value, exp: parseToken(value).payload.exp, baseUrl, origin: relayOrigin(live.status?.baseUrl, window.location.origin) });
       live.log("Access token made", `${agent.name} · valid until ${formatDate(parseToken(value).payload.exp)}`);
     } catch (e) {
       setTokenError(formatError(e));
@@ -87,6 +87,9 @@ export function AgentTools({ agent, agentKey, onForgot }: { agent: AgentInfo; ag
             {tokenSnippets(token.baseUrl, token.value).map((s) => (
               <Snippet key={s.label} label={s.label} text={s.text} />
             ))}
+            {token.origin && (
+              <Snippet label="PAT for apps: paste into your app's .env (OpenAI SDKs read the last two)" text={patEnv(token.origin, agent.name, token.value, token.exp)} />
+            )}
           </>
         )}
         {ended && <p className="form-hint">This session has ended; extend it to get a new token.</p>}

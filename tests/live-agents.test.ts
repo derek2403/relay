@@ -16,11 +16,13 @@ import {
   sessionCheck,
   sessionLabel,
   teamFor,
+  tryMethods,
+  trySample,
   tryTokenExpiry,
   usageLines,
   watchedUser,
 } from "../components/live/agents/model";
-import { sampleRequest } from "../lib/relay/browser";
+import { SAMPLE_REQUESTS, sampleRequest } from "../lib/relay/browser";
 import type { LevelView, LogEntry } from "../lib/relay/types";
 
 const A = "0x1111111111111111111111111111111111111111" as const;
@@ -61,6 +63,20 @@ test("header choice follows SRC samples: x-api-key for claude/mock, Bearer other
   assert.deepEqual(requestHeaders(sampleRequest("claude").auth, "t", false), { "x-api-key": "t" });
   assert.deepEqual(requestHeaders(sampleRequest("codex").auth, "t", false), { authorization: "Bearer t" });
   assert.deepEqual(requestHeaders(sampleRequest("stripe").auth, "t", false), { authorization: "Bearer t" });
+});
+
+test("try-a-call samples: weather is a read-only GET for Tokyo, the others come from lib/relay/browser", () => {
+  const weather = trySample("weather");
+  assert.equal(weather.method, "GET");
+  assert.equal(weather.body, null);
+  assert.equal(weather.path, SAMPLE_REQUESTS.weather?.path ?? "/v1/forecast?latitude=35.68&longitude=139.69&current=temperature_2m,weather_code");
+  assert.match(weather.path, /^\/v1\/forecast\?latitude=35\.68&longitude=139\.69&current=/);
+  assert.equal(relayUrl("weather", weather.path), `/api/relay/weather${weather.path}`);
+  assert.deepEqual(requestHeaders(weather.auth, "t", sendsBody(weather.method, weather.body ?? "")), { authorization: "Bearer t" });
+  assert.deepEqual(trySample("codex"), sampleRequest("codex"));
+  assert.deepEqual(trySample("stripe"), { method: "GET", path: "/", body: null, auth: "bearer" });
+  assert.deepEqual(tryMethods("weather"), ["GET"]);
+  assert.deepEqual(tryMethods("codex"), ["GET", "POST"]);
 });
 
 test("body only for non-GET requests with content; url joins the path", () => {

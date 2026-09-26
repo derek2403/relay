@@ -13,12 +13,13 @@ import { AGENT_CLI, isNever, relayTokenCommand } from "@/lib/relay/browser";
 
 import { type LiveNode, useLive } from "../LiveContext";
 import { AgentTools } from "./AgentTools";
-import { countdown } from "./logic";
+import { countdown, patNameOk } from "./logic";
+import { PatForApps } from "./PatForApps";
 import { SessionForm } from "./SessionForm";
 import { Snippet } from "./Snippet";
 import { SubagentForm } from "./SubagentForm";
 
-type DialogKind = "session" | "subagent" | "tools" | "setup";
+type DialogKind = "session" | "subagent" | "tools" | "setup" | "pat";
 
 export function SessionActions({ node }: { node: LiveNode }) {
   const live = useLive();
@@ -40,6 +41,9 @@ export function SessionActions({ node }: { node: LiveNode }) {
   // Subagents don't get subagents of their own (the relay CLI tells them not to create any).
   const mayHaveSubagents = isAgent && node.type !== "subagent";
   const ends = isAgent && rn.expiry && !isNever(rn.expiry) ? countdown(rn.expiry, now) : null;
+  // A member's key is the one `relay init` made on the user's laptop, so the CLI there can sign a PAT for it.
+  const memberPat = node.type === "member" && !isAgent && active && patNameOk(node.name);
+  const allowsWeather = ((node.bundle?.keys ?? []) as readonly string[]).includes("weather");
 
   return (
     <div className="live-session-actions">
@@ -66,6 +70,11 @@ export function SessionActions({ node }: { node: LiveNode }) {
       {ownKeyAgent && (
         <button type="button" className="detail-button" onClick={() => setOpen("setup")}>
           Agent setup
+        </button>
+      )}
+      {memberPat && (
+        <button type="button" className="detail-button" onClick={() => setOpen("pat")}>
+          PAT for apps
         </button>
       )}
 
@@ -137,6 +146,29 @@ export function SessionActions({ node }: { node: LiveNode }) {
             </p>
             <Snippet label="Made with the relay CLI on the user's laptop: print a token" text={relayTokenCommand(node.name)} />
             <Snippet label="Key made with npm run agent -- new: point Claude Code and Codex at the relay" text={AGENT_CLI.env(node.name, live.status?.baseUrl)} />
+            <section className="live-tools-section">
+              <h3>PAT for apps</h3>
+              <p className="dialog-description">For a key the relay CLI keeps (relay login, relay subagent create): one token for an app&apos;s .env.</p>
+              <PatForApps name={node.name} weather={allowsWeather} />
+            </section>
+            <div className="dialog-footer">
+              <button type="button" className="secondary" onClick={close}>
+                Done
+              </button>
+            </div>
+          </div>
+        )}
+      </Dialog>
+
+      <Dialog id="livePatDialog" open={open === "pat"} onClose={close}>
+        {open === "pat" && (
+          <div className="live-session-form">
+            <Heading title="PAT for apps" onClose={close} />
+            <p className="dialog-description">
+              One key in an app&apos;s .env for every API {node.name} may use, within its limits: OpenAI through the OpenAI SDK, weather and the rest
+              through the relay&apos;s /v1 routes.
+            </p>
+            <PatForApps name={node.name} weather={allowsWeather} />
             <div className="dialog-footer">
               <button type="button" className="secondary" onClick={close}>
                 Done
