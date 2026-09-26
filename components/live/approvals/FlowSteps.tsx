@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 
 import { Steps } from "@/components/live/tx/Steps";
+import { useNonModalWhile } from "@/components/ui/Dialog";
 
 import { worldNotes } from "./logic";
 import type { SignedFlow } from "./useSignedFlow";
@@ -18,13 +19,17 @@ export function FlowSteps({ flow, world, doneText, failedText }: { flow: SignedF
   const at = flow.phase === "failed" ? -1 : order.indexOf(flow.phase as (typeof order)[number]);
   const past = (p: (typeof order)[number]) => at > order.indexOf(p);
   const env = flow.challenge?.world?.environment;
+  // World ID's QR is appended to <body>: the review dialog must not be modal (top layer, page inert) meanwhile.
+  useNonModalWhile(flow.worldOpen);
   if (flow.phase === "idle") return null;
+  // A failed or cancelled flow has no current step: the unfinished ones are shown as not reached.
+  const stopped = flow.phase === "failed";
   return (
     <div className="appr-flow" aria-live="polite">
       <Steps
         steps={[
-          { label: "Challenge from the relay (valid 5 minutes)", done: past("challenge") },
-          { label: "Sign the exact decision with your wallet", done: past("sign") },
+          { label: "Challenge from the relay (valid 5 minutes)", done: past("challenge"), active: !stopped },
+          { label: "Sign the exact decision with your wallet", done: past("sign"), active: !stopped },
           ...(world
             ? [
                 {
@@ -34,6 +39,7 @@ export function FlowSteps({ flow, world, doneText, failedText }: { flow: SignedF
                     </>
                   ),
                   done: past("world"),
+                  active: !stopped,
                   detail: (
                     <>
                       <p className="live-why">{WORLD_COPY} On a computer, scan the QR code with World App.</p>
@@ -47,7 +53,7 @@ export function FlowSteps({ flow, world, doneText, failedText }: { flow: SignedF
                 },
               ]
             : []),
-          { label: "The relay verifies everything and applies it", done: flow.phase === "done" },
+          { label: "The relay verifies everything and applies it", done: flow.phase === "done", active: !stopped },
         ]}
       />
       {flow.phase === "sign" && <p className="form-hint">Check your wallet: the message names the decision, the scope and the challenge.</p>}
