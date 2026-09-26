@@ -1,17 +1,15 @@
 import { Icon } from "@/components/ui/Icon";
 
 type PageHeadingProps = {
-  eyebrow: string;
   title: string;
   description: string;
   action?: { label: string; onClick: () => void };
 };
 
-export function PageHeading({ eyebrow, title, description, action }: PageHeadingProps) {
+export function PageHeading({ title, description, action }: PageHeadingProps) {
   return (
     <div className="page-heading">
       <div>
-        <div className="eyebrow">{eyebrow}</div>
         <h1 id="pageTitle">
           {title}
           <span>.</span>

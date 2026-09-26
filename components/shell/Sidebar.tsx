@@ -56,12 +56,6 @@ export function Sidebar<V extends string = string>({ items, activeView, onSelect
             <br />
             Your API keys never do.
           </p>
-          <div className="small-network">
-            {"ENS-powered permissions "}
-            <span>
-              <Icon name="arrow" />
-            </span>
-          </div>
         </div>
         <div className="profile">
           <span className="avatar">{profile.initials}</span>

@@ -33,7 +33,7 @@ import "@/styles/live-providers.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Relay — Access, connected.",
+  title: "Keyless Relay",
   description: "Manage API permissions, budgets and agent sessions through an ENS permission tree.",
   icons: { icon: "/icon.svg" },
 };

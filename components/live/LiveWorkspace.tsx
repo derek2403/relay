@@ -5,13 +5,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConnection, useEnsName } from "wagmi";
 import { ActivityList } from "@/components/activity/ActivityList";
 import { DetailPanel } from "@/components/details/DetailPanel";
-import { EditorialRule } from "@/components/shell/EditorialRule";
-import { Footer } from "@/components/shell/Footer";
 import { Metrics } from "@/components/shell/Metrics";
 import { PageHeading } from "@/components/shell/PageHeading";
 import { SectionHeading } from "@/components/shell/SectionHeading";
 import { Sidebar, type NavItem, type Profile } from "@/components/shell/Sidebar";
-import { Topbar } from "@/components/shell/Topbar";
 import { TreeView } from "@/components/tree/TreeView";
 import { UnderTree } from "@/components/tree/UnderTree";
 import { Icon } from "@/components/ui/Icon";
@@ -43,6 +40,7 @@ import { CHAIN_ID } from "@/lib/wagmi";
 import { AdminSignIn, LiveNotice, NoRootNotice, RelayClosed, RelayUnreachable, isRootName } from "./actions/LiveNotices";
 import { NodeActions } from "./actions/NodeActions";
 import { AgentsView } from "./agents/AgentsView";
+import { firstTeam } from "./agents/model";
 import { LiveSpend } from "./agents/LiveSpend";
 import { LiveContext, type LiveContextValue, type LiveViewId } from "./LiveContext";
 import { PoliciesView } from "./policies/PoliciesView";
@@ -58,12 +56,12 @@ const TITLES: Record<LiveViewId, string> = {
   setup: "Setup",
 };
 
-const HEADINGS: Record<LiveViewId, { eyebrow: string; description: string }> = {
-  tree: { eyebrow: "01 — ORGANIZATION / ACCESS CONTROL", description: "Every name has a place. Every permission has a limit." },
-  providers: { eyebrow: "02 — PROVIDERS / RELAY KEYS", description: "Keys stay in the relay. Names only carry limits." },
-  agents: { eyebrow: "03 — AGENTS / SESSIONS", description: "Agent keys in this browser, and what the relay decided." },
-  policies: { eyebrow: "04 — POLICIES / PLANS & DELEGATES", description: "Shared limits, and who may change them." },
-  setup: { eyebrow: "05 — SETUP / COMPANY & RELAY", description: "What the relay serves, and what is left to set up." },
+const DESCRIPTIONS: Record<LiveViewId, string> = {
+  tree: "Who may use which API, and how much, from the company down to each subagent.",
+  providers: "Keys stay in the relay. Names only carry limits.",
+  agents: "Agent keys in this browser, and what the relay decided.",
+  policies: "Shared limits, and who may change them.",
+  setup: "What the relay serves, and what is left to set up.",
 };
 
 const VIEWS = Object.keys(TITLES) as LiveViewId[];
@@ -236,7 +234,7 @@ export function LiveWorkspace() {
           onClick: () => {
             // On the company itself this would add a department: people go under a team.
             if (!selected || selected.parentId === null) {
-              toast(`Select the team to add them to in the tree (e.g. dev.eng.${root ?? "<company>"}), then click Add a member.`);
+              toast(`Select the team to add them to in the tree${firstTeam(nodes) ? ` (e.g. ${firstTeam(nodes)})` : ""}, then click Add a member.`);
               return;
             }
             if (!runPanelAction("add-member")) toast("Select a name you manage in the tree, then add a member from its panel.");
@@ -298,10 +296,8 @@ export function LiveWorkspace() {
         <div className="app">
           <Sidebar items={navItems} activeView={view} onSelectView={setView} accountControls={<WalletButton />} profile={profile} />
           <div className="main">
-            <Topbar title={TITLES[view]} network={address && !onSepolia ? "Wrong network" : "Sepolia"} />
             <main>
-              <PageHeading eyebrow={HEADINGS[view].eyebrow} title={TITLES[view]} description={HEADINGS[view].description} action={headingAction} />
-              <EditorialRule left="PERMISSION WITHOUT POSSESSION" right={`${(root ?? "NO COMPANY YET").toUpperCase()} — SEPOLIA`} />
+              <PageHeading title={TITLES[view]} description={DESCRIPTIONS[view]} action={headingAction} />
               <Metrics metrics={metrics} onManageProviders={() => setView("providers")} />
               <section id="treeView" className={cx("view", view !== "tree" && "hidden")}>
                 {status.error && root && <RelayUnreachable error={status.error} draftRoot={draftRoot} onDraftRoot={setDraftRoot} />}
@@ -337,7 +333,7 @@ export function LiveWorkspace() {
                     details={details}
                   />
                 )}
-                <UnderTree note={`Live · Sepolia ENSv2${status.data ? ` · relay at ${status.data.baseUrl}` : ""}`} />
+                <UnderTree note={`Sepolia ENSv2${status.data ? ` · relay at ${status.data.baseUrl}` : ""}`} />
                 {view === "tree" && rootView && rootView.status !== "Revoked" && (
                   <section className="inline-activity agents-view" aria-label="Live view">
                     <SectionHeading
@@ -348,7 +344,7 @@ export function LiveWorkspace() {
                   </section>
                 )}
                 <section id="activityView" className="inline-activity">
-                  <SectionHeading title="Workspace activity" subtitle="Relay decisions every 5 s, and your changes in this session" />
+                  <SectionHeading title="Workspace activity" subtitle="Relay decisions, every 5 s" />
                   {viewClosed && <RelayClosed />}
                   {needsSignIn(log.error) && <AdminSignIn what="its decision log" />}
                   {log.error && !needsSignIn(log.error) && (
@@ -378,7 +374,6 @@ export function LiveWorkspace() {
                 </section>
               )}
             </main>
-            <Footer note="Live · Sepolia ENSv2 and this relay" />
           </div>
         </div>
         <Toast {...toastState} />

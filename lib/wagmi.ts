@@ -19,7 +19,7 @@ export const RPC_URL = process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL || "https://ether
 // connect modal offers browser (injected) wallets only, so local use needs no setup.
 const WALLETCONNECT_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim() ?? "";
 
-const APP = { appName: "Relay", appDescription: "Access, connected.", projectId: WALLETCONNECT_PROJECT_ID };
+const APP = { appName: "Relay", appDescription: "API access through ENS names.", projectId: WALLETCONNECT_PROJECT_ID };
 
 const connectors = connectorsForWallets(
   WALLETCONNECT_PROJECT_ID

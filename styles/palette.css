@@ -2,15 +2,12 @@
 :root{--red:#616440;--ink:#36352e;--paper:#e3dfd5;--line:#49453a35;--muted:#807a6c}
 body{background:#e3dfd5;color:var(--ink)}
 .sidebar{background:#e3dfd5;border-bottom-color:#8d857455}
-.topbar{color:#625e53}
-.network{color:#77715f}
 .page-heading{color:var(--red)}
 .page-heading p{color:#605b50}
 .eyebrow{color:#746b5d}
 h1 span{color:var(--red)}
 .primary{background:var(--red);border-color:var(--red);color:#eee7d7;box-shadow:4px 4px 0 #be684326}
 .primary:hover{background:#4a502e}
-.editorial-rule{color:#817464;border-top-color:#94836c55}
 .metrics{background:#ded9cc;border-color:#9b8c7466}
 .metric-icon{color:#757a52}
 .metric-bar{background:#54452c12}
@@ -34,8 +31,6 @@ h1 span{color:var(--red)}
 .detail-button{background:#606440;border-color:#606440;color:#f0e7d7}
 .tree-bottom{border-top-color:#95836a60;color:#736551}
 .under-tree{color:#807362}
-footer{color:#585f3c}
-footer span{color:#827564}
 .section-heading{color:var(--red)}
 .section-heading .subtle{color:#7d715e}
 .provider-card,.activity-list{background:#e9e3d6;border-color:#9b8c7470;box-shadow:4px 4px 0 #9e725412}

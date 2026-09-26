@@ -1,8 +1,4 @@
 .tree-bottom{display:flex;justify-content:space-between;gap:15px;padding:16px 22px;border-top:1px solid var(--ink);font:10px/1.7 'Space Mono',monospace}
 .tree-bottom strong{color:var(--red)}
 .under-tree{display:flex;justify-content:space-between;gap:15px;font:10px 'Space Mono',monospace;color:#fae7d0;margin-top:18px}
-.ens-mark{font-size:18px;vertical-align:middle;margin-left:6px}
-footer{padding:30px 4%;display:flex;align-items:center;gap:18px;color:var(--paper);font:700 22px 'Barlow Condensed',sans-serif}
-footer span{font:10px 'Space Mono',monospace}
-.footer-right{margin-left:auto}
 .hidden{display:none!important}

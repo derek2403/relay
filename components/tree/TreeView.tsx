@@ -114,10 +114,6 @@ export function TreeView({
           <strong>Access only narrows.</strong>
           {" Children can never exceed their parent’s permissions."}
         </span>
-        <span>
-          {"ENSv2 "}
-          <span className="subtle">↗</span>
-        </span>
       </div>
       {openList && listNode && (
         <ProviderPopover node={listNode} providerIndex={providerIndex} trigger={openList.trigger} onClose={() => setOpenList(null)} />

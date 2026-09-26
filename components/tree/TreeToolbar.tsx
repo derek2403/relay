@@ -35,7 +35,7 @@ export function TreeToolbar({ rootName, branches, branch, onBranchChange, query,
         <span className="tree-symbol">
           <Icon name="tree" />
         </span>
-        <strong>The family tree</strong>
+        <strong>Organization</strong>
         <span className="subtle">{`/ ${rootName}`}</span>
       </div>
       <div className="tree-actions">
