@@ -162,6 +162,26 @@ test("stored keys drive the environment the relay reads; clearing restores the o
   assert.equal(keyViews(store, binding, env, false).find((v) => v.env === "ANTHROPIC_API_KEY")!.source, "env");
 });
 
+test("weather's OPENWEATHER_API_KEY is a slot from the catalog; stored on the Providers page, it configures weather", () => {
+  const slot = slotFor("OPENWEATHER_API_KEY")!;
+  assert.deepEqual([slot.apis, slot.secret, slot.kind, slot.label], [["weather"], true, "key", "Weather (OpenWeatherMap) key"]);
+
+  const env: Record<string, string | undefined> = { RELAY_ROOT_NAME: "acme.eth" };
+  const store = storeIn(tempDir());
+  const binding = new EnvBinding();
+  const config = loadConfig(env);
+  assert.equal(config.isConfigured("weather"), false);
+  store.setKey("OPENWEATHER_API_KEY", "  0123456789abcdef0123456789abcdef  ");
+  binding.apply(env, store.desiredEnv());
+  assert.equal(config.keyFor("weather"), "0123456789abcdef0123456789abcdef");
+  assert.equal(config.isConfigured("weather"), true);
+  const view = keyViews(store, binding, env, false).find((v) => v.env === "OPENWEATHER_API_KEY")!;
+  assert.deepEqual([view.set, view.source, view.hint], [true, "store", null], "anonymous callers never get a hint");
+  store.setKey("OPENWEATHER_API_KEY", null);
+  binding.apply(env, store.desiredEnv());
+  assert.equal(config.isConfigured("weather"), false);
+});
+
 test("upstream overrides apply like keys (RELAY_UPSTREAM_MAILCHIMP)", () => {
   const env: Record<string, string | undefined> = {};
   const store = storeIn(tempDir());

@@ -398,7 +398,7 @@ test("mock provider: answers itself with an Anthropic-shaped message and charges
   assert.equal(msg.type, "message");
   assert.equal(msg.role, "assistant");
   assert.equal(msg.model, "mock");
-  assert.deepEqual(msg.content, [{ type: "text", text: `Hello from the mock provider, ${LEAF}` }]);
+  assert.deepEqual(msg.content, [{ type: "text", text: `Hello from the relay, ${LEAF}` }]);
   assert.equal(msg.stop_reason, "end_turn");
   assert.deepEqual(msg.usage, { input_tokens: 10, output_tokens: 20 });
   const [entry] = await waitForLog(deps.meter);
