@@ -75,7 +75,7 @@ export function DetailPanel({ node, grants, parentLabel, providerIndex, note, ac
           <div className="detail-section">
             <div className="detail-section-title">
               {"API permissions "}
-              <span>{`${grants.length} APIs`}</span>
+              <span>{`${grants.length} ${grants.length === 1 ? "API" : "APIs"}`}</span>
             </div>
             {grants.map((grant) => (
               <GrantRow key={grant.providerId} grant={grant} providerIndex={providerIndex} />

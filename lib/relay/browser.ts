@@ -53,7 +53,7 @@ export function newAgentKey(name?: string): StoredAgentKey {
 }
 
 /** Shown next to "generate a key": the private key sits in localStorage as plain text. */
-export const DEMO_KEY_WARNING = "Stored unencrypted in this browser, for testing only. Real agents should use their own key.";
+export const DEMO_KEY_WARNING = "Kept unencrypted in this browser. Agents that run on their own machine should use their own key.";
 
 // Names are ERC-1155 tokens: minting to an address with code calls onERC1155Received on it,
 // and a contract that doesn't implement it makes register revert (ERC1155InvalidReceiver).
@@ -62,6 +62,8 @@ export const CONTRACT_OWNER_WARNING =
 
 /** The relay CLI (scripts/relay.ts, installed as `relay`) on the user's laptop: `--as` takes the agent's or a subagent's label. */
 export const relayTokenCommand = (name: string) => `relay token --as ${name.split(".")[0]}`;
+/** Export lines for Codex and OpenAI SDKs, from the same CLI keys. */
+export const relayEnvCommand = (name: string) => `eval "$(relay env --as ${name.split(".")[0]})"`;
 
 /** Agent CLI commands (scripts/agent.ts) for an agent that keeps its own key. */
 export const AGENT_CLI = {
@@ -236,12 +238,12 @@ export const ADMIN_SIGN_IN = "/api/relay/admin";
 export function tokenSnippets(baseUrl: string, token: string) {
   return [
     {
-      label: "Test call (mock provider, $0.01)",
+      label: "Check it: one Codex call",
       text: [
-        `curl -s ${baseUrl}/mock/v1/messages \\`,
-        `  -H "x-api-key: ${token}" \\`,
+        `curl -s ${baseUrl}/codex/v1/chat/completions \\`,
+        `  -H "authorization: Bearer ${token}" \\`,
         `  -H "content-type: application/json" \\`,
-        `  -d '{"model":"mock","max_tokens":64,"messages":[{"role":"user","content":"Hello"}]}'`,
+        `  -d '{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"Say hi in five words."}]}'`,
       ].join("\n"),
     },
     { label: "Claude Code", text: `ANTHROPIC_BASE_URL=${baseUrl}/claude ANTHROPIC_API_KEY=${token} claude` },
@@ -271,13 +273,13 @@ export const SAMPLE_REQUESTS: Record<string, SampleRequest> = {
   codex: {
     method: "POST",
     path: "/v1/chat/completions",
-    body: JSON.stringify({ model: "gpt-4o-mini", max_tokens: 64, messages: [{ role: "user", content: "Say hi in five words." }] }, null, 2),
+    body: JSON.stringify({ model: "gpt-5.4-mini", messages: [{ role: "user", content: "Say hi in five words." }] }, null, 2),
     auth: "bearer",
   },
   "openai-images": {
     method: "POST",
     path: "/v1/images/generations",
-    body: JSON.stringify({ model: "gpt-image-1", prompt: "A small red torii gate, flat illustration", n: 1, size: "1024x1024" }, null, 2),
+    body: JSON.stringify({ model: "gpt-image-1-mini", prompt: "A small red torii gate, flat illustration", n: 1, size: "1024x1024" }, null, 2),
     auth: "bearer",
   },
   github: { method: "GET", path: "/user", body: null, auth: "bearer" },

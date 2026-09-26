@@ -249,7 +249,7 @@ export function SessionForm(props: SessionFormProps) {
     );
   }
 
-  const badge = !label || (!s && registryLive) ? null : checking ? "checking…" : registered && !resumable ? "taken" : registered ? "half done" : "free";
+  const badge = !label || (!s && registryLive) ? null : checking ? "checking…" : registered && !resumable ? "taken" : registered ? "unfinished" : "free";
   const steps: Step[] = [
     ...prepSteps,
     ...(oneTx

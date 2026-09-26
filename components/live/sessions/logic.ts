@@ -233,9 +233,11 @@ export function patEnv(origin: string, name: string, token: string, exp: number)
 export const patEnvPreview = (origin: string) =>
   [`RELAY_BASE_URL=${origin}/v1`, "RELAY_API_KEY=kr1…", `OPENAI_BASE_URL=${origin}/v1/openai`, "OPENAI_API_KEY=kr1…"].join("\n");
 
-/** A free call that proves the PAT works: Tokyo's current weather through the relay's OpenAI-style /v1 routes. */
+/**
+ * A call with no model cost that proves the PAT works: Tokyo's current weather (OpenWeatherMap) through the
+ * relay's OpenAI-style /v1 routes. The relay adds its OpenWeatherMap key; the app only sends the PAT.
+ */
 export const patWeatherCheck = [
   "set -a; . ./.env; set +a",
-  'curl -s "$RELAY_BASE_URL/weather/forecast?latitude=35.68&longitude=139.69&current=temperature_2m,weather_code" \\',
-  '  -H "Authorization: Bearer $RELAY_API_KEY"',
+  'curl -s "$RELAY_BASE_URL/weather/data/2.5/weather?q=Tokyo&units=metric" -H "Authorization: Bearer $RELAY_API_KEY"',
 ].join("\n");

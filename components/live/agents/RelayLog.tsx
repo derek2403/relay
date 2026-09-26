@@ -13,7 +13,7 @@ export function AdminSignIn({ what }: { what: string }) {
   if (status?.viewAuth === "closed") {
     return (
       <p className="form-hint agents-signin">
-        The relay shows {what} only to agent tokens: it runs without RELAY_ADMIN_TOKEN. Set it on the relay, restart, then{" "}
+        The relay shows {what} only to agent tokens. Once admin sign-in is turned on for this relay,{" "}
         <a href={ADMIN_SIGN_IN} className="agents-link">
           sign in as admin
         </a>

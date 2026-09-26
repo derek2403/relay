@@ -168,5 +168,7 @@ test("PAT for apps: relay origin, curl snippet and .env lines", () => {
     patEnvPreview(origin).split("\n").map((l) => l.split("=")[0]),
     ["RELAY_BASE_URL", "RELAY_API_KEY", "OPENAI_BASE_URL", "OPENAI_API_KEY"],
   );
-  assert.match(patWeatherCheck, /\$RELAY_BASE_URL\/weather\/forecast\?latitude=35\.68&longitude=139\.69/);
+  assert.match(patWeatherCheck, /curl -s "\$RELAY_BASE_URL\/weather\/data\/2\.5\/weather\?q=Tokyo&units=metric"/);
+  assert.match(patWeatherCheck, /-H "Authorization: Bearer \$RELAY_API_KEY"/);
+  assert.doesNotMatch(patWeatherCheck, /appid/, "the OpenWeatherMap key stays on the relay");
 });

@@ -157,7 +157,7 @@ function CustomForm({ state, creds, auth, reload, onClose }: Props & { state: Cu
           <p className="form-error" role="alert">
             {error}
           </p>
-          <div className="form-hint">Stored only. Agents can't call it through the relay, and no bundle can grant it.</div>
+          <div className="form-hint">Stored only. Agents can't call it through the relay, and it can't be added to anyone's limits.</div>
           <div className="dialog-footer">
             {editing && (
               <button type="button" className="danger lp-remove" disabled={!!busy} onClick={() => void remove()}>

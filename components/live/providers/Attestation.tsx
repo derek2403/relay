@@ -87,18 +87,13 @@ function AttestationError({ error }: { error: Error }) {
     return (
       <>
         <p className="dialog-description">No TEE is reachable from the relay, so there is no quote to show.</p>
-        <div className="form-hint">
-          To try it locally, run Phala's dstack simulator next to the relay, then set{" "}
-          <code>DSTACK_SIMULATOR_ENDPOINT=http://localhost:8090</code> in <code>.env.local</code> and restart the relay. Inside a real
-          Phala CVM the relay finds <code>/var/run/dstack.sock</code> on its own.
-        </div>
         {reasonOf(error) && reasonOf(error) !== "no-tee" && <p className="form-error">{reasonOf(error)}</p>}
       </>
     );
   }
   return (
     <p className="form-error" role="alert">
-      {statusOf(error) === 404 ? "This relay has no attestation endpoint yet." : apiErrorText(error)}
+      {statusOf(error) === 404 ? "This relay doesn't serve an attestation." : apiErrorText(error)}
     </p>
   );
 }

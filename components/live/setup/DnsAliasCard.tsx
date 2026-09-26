@@ -82,7 +82,7 @@ export function DnsAliasCard() {
           <Why>
             With it, {domain} resolves as {root}, and x.{domain} as x.{root}.
           </Why>
-          <p className="live-setup-muted">2. Tell the relay, in .env.local (then restart):</p>
+          <p className="live-setup-muted">2. Add this to the relay's settings, then redeploy it:</p>
           <CopyBlock text={dnsAliasEnvLine(domain, root)} />
           {alias && (
             <Why>
@@ -107,7 +107,7 @@ export function DnsAliasCard() {
               </div>
             </>
           )}
-          <Why>DNS changes can take a while to show up. This path hasn&apos;t been tested end to end on Sepolia.</Why>
+          <Why>DNS changes can take a while to show up.</Why>
         </>
       )}
     </SetupCard>

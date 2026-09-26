@@ -144,7 +144,7 @@ export function SessionMinterCard() {
             </a>
           </div>
           <div className="live-setup-row">
-            <span>{m.fromEnv ? "From NEXT_PUBLIC_SESSION_MINTER" : "Saved in this browser"}</span>
+            <span>{m.fromEnv ? "Shared with your team" : "Saved in this browser"}</span>
             {!m.fromEnv && (
               <button type="button" className="parent-link" onClick={() => m.save(null)}>
                 Forget
@@ -153,7 +153,7 @@ export function SessionMinterCard() {
           </div>
           {!m.fromEnv && (
             <Why>
-              To share it with your team, put <code>NEXT_PUBLIC_SESSION_MINTER={m.minter}</code> in .env.local.
+              To share it with your team, set <code>NEXT_PUBLIC_SESSION_MINTER={m.minter}</code> on the relay.
             </Why>
           )}
 

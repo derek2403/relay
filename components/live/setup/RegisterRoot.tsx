@@ -57,15 +57,15 @@ function Faucet({ amount = "100" }: { amount?: string }) {
     );
     if (r) {
       void balance.refetch();
-      log("Test USDC minted", `${amount} ${USDC.symbol} to ${address}`);
-      toast(`${amount} test USDC minted.`);
+      log("USDC minted", `${amount} ${USDC.symbol} to ${address}`);
+      toast(`${amount} USDC minted.`);
     }
   };
 
   return (
     <section className="live-setup-sub">
-      <h3>1. Get test USDC</h3>
-      <p className="live-setup-muted">Registering a .eth name costs a small fee in test USDC. Anyone can mint it.</p>
+      <h3>1. Get Sepolia USDC</h3>
+      <p className="live-setup-muted">Registering a .eth name on Sepolia costs a small USDC fee. Mint some here first.</p>
       <div className="live-setup-row">
         <span>Balance</span>
         <b className="live-setup-mono">{balance.data === undefined ? "—" : `${formatUnits(balance.data, USDC.decimals)} ${USDC.symbol}`}</b>
@@ -247,13 +247,13 @@ function RegisterName({ onRegistered }: { onRegistered: (name: string) => void }
     <section className="live-setup-sub">
       <h3>2. Register a .eth name</h3>
       <p className="live-setup-muted">
-        Commit to a secret, wait a minute so nobody can front-run you, then register. Fees are paid in test USDC.
+        Commit to a secret, wait a minute so nobody can front-run you, then register. Fees are paid in Sepolia USDC.
       </p>
       <div className="form-row">
         <label>
           Name
           <span className="live-setup-suffix">
-            <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="acme" spellCheck={false} autoComplete="off" />
+            <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="yourcompany" spellCheck={false} autoComplete="off" />
             <b>.eth</b>
           </span>
         </label>
@@ -274,9 +274,9 @@ function RegisterName({ onRegistered }: { onRegistered: (name: string) => void }
           <b className="live-setup-mono">{total !== undefined ? `${formatUnits(total, USDC.decimals)} USDC` : ""}</b>
         </div>
       )}
-      {input && !label && <p className="form-error">Enter a single valid label, e.g. &quot;acme&quot;.</p>}
+      {input && !label && <p className="form-error">Enter a single label, e.g. &quot;yourcompany&quot;.</p>}
       {price.error && <p className="form-error">Can&apos;t price this name (it may be too short or not available).</p>}
-      {lowBalance && <p className="form-error">Not enough test USDC. Mint some in step 1.</p>}
+      {lowBalance && <p className="form-error">Not enough USDC. Mint some in step 1.</p>}
       {!address && <Why>Connect a wallet to register.</Why>}
 
       {label && available.data && address && <Steps steps={steps} />}

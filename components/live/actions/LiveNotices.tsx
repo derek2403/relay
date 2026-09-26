@@ -21,7 +21,7 @@ export const isRootName = (name: string | null): name is string => !!name && /^[
 export function DraftRootField({ value, onChange }: { value: string; onChange: (name: string) => void }) {
   const [text, setText] = useState(value);
   const normalized = tryNormalize(text.trim());
-  const problem = text.trim() && !isRootName(normalized) ? "The company name must be a .eth name like acme.eth." : null;
+  const problem = text.trim() && !isRootName(normalized) ? "The company name must be a .eth name, like yourcompany.eth." : null;
   return (
     <form
       className="live-draft-root"
@@ -32,7 +32,7 @@ export function DraftRootField({ value, onChange }: { value: string; onChange: (
     >
       <label htmlFor="liveDraftRoot">Company name</label>
       <div className="form-row">
-        <input id="liveDraftRoot" value={text} placeholder="acme.eth" autoComplete="off" spellCheck={false} onChange={(event) => setText(event.target.value)} />
+        <input id="liveDraftRoot" value={text} placeholder="yourcompany.eth" autoComplete="off" spellCheck={false} onChange={(event) => setText(event.target.value)} />
         <button type="submit" className="secondary" disabled={!normalized || !isRootName(normalized) || normalized === value}>
           Use this name
         </button>
@@ -69,8 +69,8 @@ export function RelayClosed() {
   return (
     <LiveNotice title="The relay's log and spend are closed">
       <p>
-        This relay runs without RELAY_ADMIN_TOKEN, so it shows decisions and spend only to agent tokens. Set RELAY_ADMIN_TOKEN on the relay,
-        restart it and <a href={ADMIN_SIGN_IN}>sign in as admin</a> to see them here.
+        This relay shows decisions and spend only to agent tokens. Once admin sign-in is turned on for the relay,{" "}
+        <a href={ADMIN_SIGN_IN}>sign in as admin</a> to see them here.
       </p>
     </LiveNotice>
   );
@@ -81,7 +81,7 @@ export function AdminSignIn({ what }: { what: string }) {
   return (
     <LiveNotice title="Sign in to see relay data" tone="warning">
       <p>
-        {`The relay keeps ${what} behind RELAY_ADMIN_TOKEN. `}
+        {`The relay shows ${what} to admins only. `}
         <a href={ADMIN_SIGN_IN}>Sign in as admin</a>
         {" to see it in this browser."}
       </p>

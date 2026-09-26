@@ -14,8 +14,6 @@ export const TRY_TOKEN_TTL_SEC = 600;
 /** The relay's own refusals carry { error: string }; upstream errors use objects. */
 export const RELAY_ERROR_STATUSES = [400, 401, 403, 404, 413, 502, 503];
 
-/** Where SRC's live view looks for users when nothing is selected: dev.eng.<company>. */
-export const DEFAULT_TEAM = "dev.eng";
 
 /** Icon key for <Icon/>: catalog ids mapped to the brand marks in lib/provider-marks. */
 export const markFor = providerMark;
@@ -30,12 +28,12 @@ export const tryTokenExpiry = (now: number, sessionExpiry: number | null, ttl = 
 
 /**
  * Starting requests for APIs lib/relay/browser has no sample for yet (its SAMPLE_REQUESTS win).
- * Weather is Open-Meteo's read-only forecast API: Tokyo's current conditions, no key needed.
+ * Weather is OpenWeatherMap's read-only current weather for Tokyo; the relay adds its key (?appid=).
  */
 export const EXTRA_SAMPLES: Readonly<Record<string, SampleRequest>> = {
   weather: {
     method: "GET",
-    path: "/v1/forecast?latitude=35.68&longitude=139.69&current=temperature_2m,weather_code",
+    path: "/data/2.5/weather?q=Tokyo&units=metric",
     body: null,
     auth: "bearer",
   },
@@ -214,7 +212,10 @@ export function watchedUser(
   return userUnderRoot(root, selectedUser);
 }
 
-/** The team whose users the panel lists: the watched user's team, else dev.eng.<root>. */
-export const teamFor = (root: string | null, watched: string | null) => (watched ? parentOf(watched) : root ? `${DEFAULT_TEAM}.${root}` : null);
+/** The first team in the loaded tree: where to look for users (and add members) before any is picked. */
+export const firstTeam = (nodes: readonly { name: string; type: string }[]) => nodes.find((node) => node.type === "team")?.name ?? null;
+
+/** The team whose users the panel lists: the watched user's team, else the first team in the tree. */
+export const teamFor = (watched: string | null, fallback: string | null) => (watched ? parentOf(watched) : fallback);
 
 export const STATE_TEXT: Record<LiveState, string> = { live: "live", ended: "ended", revoked: "revoked", gone: "not registered", unknown: "…" };

@@ -15,6 +15,7 @@ import {
   sendsBody,
   sessionCheck,
   sessionLabel,
+  firstTeam,
   teamFor,
   tryMethods,
   trySample,
@@ -69,8 +70,8 @@ test("try-a-call samples: weather is a read-only GET for Tokyo, the others come 
   const weather = trySample("weather");
   assert.equal(weather.method, "GET");
   assert.equal(weather.body, null);
-  assert.equal(weather.path, SAMPLE_REQUESTS.weather?.path ?? "/v1/forecast?latitude=35.68&longitude=139.69&current=temperature_2m,weather_code");
-  assert.match(weather.path, /^\/v1\/forecast\?latitude=35\.68&longitude=139\.69&current=/);
+  assert.equal(weather.path, SAMPLE_REQUESTS.weather?.path ?? "/data/2.5/weather?q=Tokyo&units=metric");
+  assert.match(weather.path, /^\/data\/2\.5\/weather\?q=Tokyo&units=metric$/);
   assert.equal(relayUrl("weather", weather.path), `/api/relay/weather${weather.path}`);
   assert.deepEqual(requestHeaders(weather.auth, "t", sendsBody(weather.method, weather.body ?? "")), { authorization: "Bearer t" });
   assert.deepEqual(trySample("codex"), sampleRequest("codex"));
@@ -168,9 +169,12 @@ test("above levels and which user is watched", () => {
   // Selection moved after the pick: follow the tree again.
   assert.equal(watchedUser("acme.eth", "carol.dev.eng.acme.eth", { user: "bob.dev.eng.acme.eth", selectedAt: "x" }, "carol.dev.eng.acme.eth"), "carol.dev.eng.acme.eth");
   assert.equal(watchedUser("acme.eth", "alice.dev.eng.other.eth", null, "alice.dev.eng.other.eth"), null);
-  assert.equal(teamFor("acme.eth", null), "dev.eng.acme.eth");
-  assert.equal(teamFor("acme.eth", "alice.ops.eng.acme.eth"), "ops.eng.acme.eth");
+  assert.equal(teamFor(null, "cloudops.dev.acme.eth"), "cloudops.dev.acme.eth");
+  assert.equal(teamFor("alice.ops.eng.acme.eth", "cloudops.dev.acme.eth"), "ops.eng.acme.eth");
   assert.equal(teamFor(null, null), null);
+  const tree = [{ name: "acme.eth", type: "company" }, { name: "dev.acme.eth", type: "department" }, { name: "cloudops.dev.acme.eth", type: "team" }, { name: "web.dev.acme.eth", type: "team" }];
+  assert.equal(firstTeam(tree), "cloudops.dev.acme.eth");
+  assert.equal(firstTeam(tree.slice(0, 2)), null);
 });
 
 test("keys under root and catalog marks", () => {

@@ -11,7 +11,7 @@ import { CopyBlock, Pill, SetupCard, Why } from "./bits";
 import { useAdminState } from "./RelayStatusCard";
 import { SCRIPT_COMMANDS, type ResetResult, resetSummary } from "./setup-model";
 
-/** The org:setup / demo:reset scripts, and the relay's spend reset (POST /api/relay/admin/reset) for the signed-in admin. */
+/** The org:seed / demo:reset scripts, and the relay's spend reset (POST /api/relay/admin/reset) for the signed-in admin. */
 export function ScriptsCard() {
   const { refresh, log, toast } = useLive();
   const admin = useAdminState();
@@ -44,7 +44,7 @@ export function ScriptsCard() {
       index="06"
       title="Scripts"
       pill={<Pill>CLI</Pill>}
-      description="Run these from the repo to build the company on Sepolia (docs/demo.md), and to clean up after a demo run."
+      description="Run these from the repo to build the company on Sepolia, and to remove names added under it."
     >
       {SCRIPT_COMMANDS.map((c) => (
         <section key={c.command} className="live-setup-sub">

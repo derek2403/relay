@@ -103,7 +103,7 @@ export function AgentTools({ agent, agentKey, onForgot }: { agent: AgentInfo; ag
       <section className="live-tools-section">
         <h3>Key in this browser</h3>
         <p className="dialog-description">
-          The agent&apos;s private key is stored unencrypted in this browser, for testing only. Real agents should keep their own key (npm run agent -- new).
+          The agent&apos;s private key is kept unencrypted in this browser. Agents that run on their own machine should hold their own key.
         </p>
         {!confirmForget ? (
           <button type="button" className="secondary" onClick={() => setConfirmForget(true)}>

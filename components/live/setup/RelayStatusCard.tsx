@@ -44,7 +44,7 @@ export function RelayStatusCard() {
   const nameInput = (
     <label className="live-setup-field">
       Company name
-      <input value={draft} onChange={(e) => onDraft(e.target.value)} placeholder="acme.eth" spellCheck={false} autoComplete="off" />
+      <input value={draft} onChange={(e) => onDraft(e.target.value)} placeholder="yourcompany.eth" spellCheck={false} autoComplete="off" />
       {problem && (
         <span className="form-error" role="alert">
           {problem}

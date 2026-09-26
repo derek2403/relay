@@ -32,10 +32,10 @@ export function FunderCard() {
       )}
       <ul className="live-setup-ticks">
         <li>Only members get gas: names under the company, held by someone other than the company owner. Agents never do.</li>
-        <li>Only wallets below FUNDER_MIN_BALANCE_ETH, once per registration.</li>
-        <li>At most FUNDER_DAILY_LIMIT_ETH per UTC day. No sign-in: the chain is the check.</li>
+        <li>Only wallets low on Sepolia ETH, once per registration.</li>
+        <li>A daily limit caps the total per UTC day. No sign-in: the chain is the check.</li>
       </ul>
-      {!summary.on && <Why>Set FUNDER_PRIVATE_KEY (a small hot wallet with Sepolia ETH) and FUNDER_AMOUNT_ETH in .env.local, then restart.</Why>}
+      {!summary.on && <Why>Set FUNDER_PRIVATE_KEY (a small hot wallet with Sepolia ETH) and FUNDER_AMOUNT_ETH on the relay to turn this on.</Why>}
     </SetupCard>
   );
 }

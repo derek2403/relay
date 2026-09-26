@@ -9,7 +9,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { useNow } from "@/lib/hooks/useNow";
 import { useRelayAgentKeys } from "@/lib/hooks/useRelayAgents";
 import { useRelayNode } from "@/lib/hooks/useRelayNode";
-import { AGENT_CLI, isNever, relayTokenCommand } from "@/lib/relay/browser";
+import { isNever, relayEnvCommand, relayTokenCommand } from "@/lib/relay/browser";
 
 import { type LiveNode, useLive } from "../LiveContext";
 import { AgentTools } from "./AgentTools";
@@ -145,7 +145,7 @@ export function SessionActions({ node }: { node: LiveNode }) {
               This agent keeps its own key, so it signs its own tokens. Nothing secret leaves its machine. Run one of these there.
             </p>
             <Snippet label="Made with the relay CLI on the user's laptop: print a token" text={relayTokenCommand(node.name)} />
-            <Snippet label="Key made with npm run agent -- new: point Claude Code and Codex at the relay" text={AGENT_CLI.env(node.name, live.status?.baseUrl)} />
+            <Snippet label="Made with the relay CLI: set the environment for Codex and OpenAI SDKs" text={relayEnvCommand(node.name)} />
             <section className="live-tools-section">
               <h3>PAT for apps</h3>
               <p className="dialog-description">For a key the relay CLI keeps (relay login, relay subagent create): one token for an app&apos;s .env.</p>

@@ -37,7 +37,7 @@ import { TxButton } from "../tx/TxButton";
 import { TxStatus } from "../tx/TxStatus";
 import { AdminSignIn } from "./RelayLog";
 import { ProviderUsage } from "./Usage";
-import { STATE_TEXT, aboveLevels, decisionsFor, limitedOrUsed, logOutcome, providerKeys, teamFor, watchedUser } from "./model";
+import { STATE_TEXT, aboveLevels, decisionsFor, firstTeam, limitedOrUsed, logOutcome, providerKeys, teamFor, watchedUser } from "./model";
 
 const stateOf = (data: LiveData, name: string, now: number): LiveState =>
   liveState(data.levels[name], name in data.liveExpiry ? data.liveExpiry[name] : undefined, now);
@@ -59,7 +59,7 @@ export function LiveSpend() {
 
   const selectedName = selected?.name ?? null;
   const watched = watchedUser(root, selectedName ? userOf(selectedName) : null, pick, selectedName);
-  const team = teamFor(root, watched);
+  const team = teamFor(watched, firstTeam(nodes));
   const teamList = useQuery({ ...childrenQuery(team), refetchInterval: TEAM_POLL_MS, refetchIntervalInBackground: false });
   const statusLoading = !status && !statusError;
   // Without a pick, the newest user, skipping ones the admin holds itself (like the launch squad).

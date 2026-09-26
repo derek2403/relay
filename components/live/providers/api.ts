@@ -88,8 +88,8 @@ export function apiErrorText(err: unknown, what = "The relay"): string {
   if (status === 403) return detail || "Not allowed from this page.";
   // A 404 without a JSON { error } is Next's own page: the route isn't there. The relay's
   // own 404s ("unknown service", "unknown key") say what's missing.
-  if (status === 404) return isMissingRoute(err) ? `${what} has no credentials API yet.` : detail;
+  if (status === 404) return isMissingRoute(err) ? `${what} doesn't serve a credentials API.` : detail;
   if (status === 429) return detail || "Too many attempts. Try again in a minute.";
-  if (status === 503) return detail || `${what} is not set up for this yet.`;
+  if (status === 503) return detail || `${what} can't do this right now.`;
   return detail;
 }

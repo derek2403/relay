@@ -20,12 +20,12 @@ export function AgentsView() {
   return (
     <div className="agents-view">
       <section className="agents-section">
-        <SectionHeading title="Agent keys" subtitle="Keys made in this browser, for testing." />
+        <SectionHeading title="Agent keys" subtitle="Keys made in this browser, with the time left on each session." />
         <AgentKeys />
       </section>
 
       <section className="agents-section">
-        <SectionHeading title="Try a call" subtitle="A real request through the relay, as one of these agents." />
+        <SectionHeading title="Try a call" subtitle="A request through the relay, signed by one of these agents." />
         <TryCall log={log} />
       </section>
 
