@@ -1,0 +1,7 @@
+.section-heading{display:flex;justify-content:space-between;align-items:center;color:var(--paper);margin:20px 0}
+.section-heading h2{font:700 36px 'Barlow Condensed',sans-serif;text-transform:uppercase}
+.section-heading .subtle{color:var(--paper)}
+.provider-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.provider-card{border:1px solid var(--ink);background:var(--paper);padding:28px;box-shadow:5px 5px 0 #70242230}
+.provider-card h2{display:flex;gap:12px;align-items:center;font:700 35px 'Barlow Condensed',sans-serif}
+.provider-card p{line-height:1.8;color:#776954}

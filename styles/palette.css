@@ -1,0 +1,49 @@
+/* Reference palette: warm stone, brick red, faded persimmon, charcoal. */
+:root{--red:#616440;--ink:#36352e;--paper:#e3dfd5;--line:#49453a35;--muted:#807a6c}
+body{background:#e3dfd5;color:var(--ink)}
+.sidebar{background:#e3dfd5;border-bottom-color:#8d857455}
+.topbar{color:#625e53}
+.network{color:#77715f}
+.page-heading{color:var(--red)}
+.page-heading p{color:#605b50}
+.eyebrow{color:#746b5d}
+h1 span{color:var(--red)}
+.primary{background:var(--red);border-color:var(--red);color:#eee7d7;box-shadow:4px 4px 0 #be684326}
+.primary:hover{background:#4a502e}
+.editorial-rule{color:#817464;border-top-color:#94836c55}
+.metrics{background:#ded9cc;border-color:#9b8c7466}
+.metric-icon{color:#757a52}
+.metric-bar{background:#54452c12}
+.metric-bar i{background:#6d7344}
+.tree-shell{background:#e8e3d8;border-color:#93857380;box-shadow:6px 6px 0 #9e725412}
+.tree-toolbar{border-bottom-color:#95836a60}
+.tree-title strong{color:var(--red)}
+.graph-panel{background-color:#e6e1d6;background-image:radial-gradient(#7c654824 .7px,transparent .7px)}
+.node{background:#eee8dc;border-color:#aa9b83;box-shadow:3px 3px 0 #7359380b}
+.node.selected{background:#616440;color:#f2e6cf;border-color:#484c2f;box-shadow:4px 4px 0 #84452e40}
+.node.selected.path-parent{border-color:#484c2f}
+.node.path-parent{border-color:#828363}
+.node-icon.company{background:#616440;border-color:#616440;color:#ede4d1}
+.connections path{stroke:#b3a48c}
+.connections path.onpath{stroke:#71754e}
+.detail-panel{background:#dbd4c5;border-left-color:#9e8d7366}
+.detail-icon{background:#e9dfce;border-color:#a66f50;color:#525736}
+.detail-panel h2{color:#535835}
+.usage-track i{background:#7c805a}
+.usage-track.codex i{background:#8e7957}
+.detail-button{background:#606440;border-color:#606440;color:#f0e7d7}
+.tree-bottom{border-top-color:#95836a60;color:#736551}
+.under-tree{color:#807362}
+footer{color:#585f3c}
+footer span{color:#827564}
+.section-heading{color:var(--red)}
+.section-heading .subtle{color:#7d715e}
+.provider-card,.activity-list{background:#e9e3d6;border-color:#9b8c7470;box-shadow:4px 4px 0 #9e725412}
+.status-pill{border-color:#89816b;color:#595d43}
+.search{background:#efeade45;border-color:#96866e55}
+.icon-button{border-color:#96866e55}
+#comets{opacity:.22;mix-blend-mode:multiply}
+dialog{background:#e7e1d4;border-color:#9f866a;box-shadow:8px 8px 0 #745c3955}
+input,select{background:#eee8dc;border-color:#b3a58d}
+#toast{background:#e9e0cf;border-color:#a67956;box-shadow:4px 4px 0 #9b68483a}
+@media(max-width:720px){.detail-panel{border-top-color:#9e8d7366}}
