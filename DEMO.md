@@ -1,14 +1,20 @@
 # Demo runbook
 
-Three stage demos on **https://relay.derek2403.win**, with the company `sodalabs.eth` on ENSv2 Sepolia.
+Stage demos on **https://relay.derek2403.win**, with the company `sodalabs.eth` on ENSv2 Sepolia.
 
 1. **Codex with an ENS identity.** Derek gets a name instead of an API key. Codex runs as its own name, makes
    subagents, hits its budget, and stops within seconds when Derek is removed.
 2. **One PAT for LLM + weather + images.** One `curl` puts a token for Derek's ENS name into an app's `.env`.
    A small OpenAI-style web app then uses the LLM, OpenWeatherMap and image generation with that one token.
-3. **A blockchain agent with delegated MultiBaas access.** Derek's agent monitors the company treasury, pays
-   an approved supplier, and deploys and manages an escrow on Sepolia through MultiBaas. It never holds the
-   MultiBaas key or the treasury's funds, and every step it isn't allowed to take is refused.
+3. **Proof you can check.** `npm run verify:live` reads the live org from Sepolia and shows why a member can't
+   raise his own limits. **View attestation** fetches a fresh Intel TDX quote from Phala Cloud with your nonce.
+
+| Sponsor | What to show |
+|---|---|
+| ENS | Demos 1, 2 and 3: names are identities, limits live on ENS, removal revokes at once |
+| Phala | Demo 3, part B: a fresh TDX quote from Phala Cloud, checked in the browser and by Phala's verifier |
+| MultiBaas | Demo 3, part C: connected on the Providers page, and no agent can reach it directly |
+| World | Set up and verified with World's verify endpoint; the approval flow isn't built yet (see the end) |
 
 | Name | What it is |
 |---|---|
@@ -169,71 +175,77 @@ command: then skip `relay init` and paste the address `relay whoami` shows.
 Derek himself still has budget, so the web app keeps working. One **Remove** then stops Codex, its subagents
 and the web app together.
 
-## Demo 3: A blockchain agent with delegated MultiBaas access
+## Demo 3: Proof you can check
 
-> **Draft.** This demo is being built. The flow below is the plan; exact command names, screens, addresses
-> and expected output get filled in once it runs end to end on Sepolia.
+No wallet or Codex needed. Open a terminal in the repo and the portal on **Providers**.
 
-The company connects one MultiBaas deployment (Ethereum Sepolia) to the relay. Blockchain permissions travel
-down the same ENS tree as API limits. Each level can only narrow what the level above allows, and a payment
-counts against every level's allowance.
+### A. The org on ENS, read live (ENS)
 
-| On Sepolia | What it is |
-|---|---|
-| Treasury (policy vault) | Holds the company's test tokens. Pays only approved recipients, within its own limit |
-| Test token | The ERC-20 the treasury holds and pays out |
-| Escrow template | The one reviewed contract agents may deploy |
-| Relay signer | A testnet wallet on the relay that signs approved transactions. It may pay only through the vault |
+```sh
+npm run verify:live
+```
 
-| Capability | What the agent may do |
-|---|---|
-| Read · Track | Read balances and contract state, fetch events and transaction status |
-| Prepare | Build calls to approved contract methods |
-| Sign and submit | Send an approved proposal with the relay signer |
-| Deploy · Manage | Deploy the escrow template, call its permitted admin functions |
+It takes about 15 seconds, sends nothing and signs nothing. Walk through its four sections:
 
-### Setup (once)
+1. **Live org:** every name under `sodalabs.eth`, each with its owner, its limits and an Etherscan link. Every
+   value is read from Sepolia now.
+2. **A member can't raise his own limits:** `hasRoles` shows the member holds no roles on the resolver that stores
+   his limits. The level above him wrote them, and only it can change them.
+3. **A forbidden write reverts:** the member's own address tries to raise his cap, give himself the text role,
+   move his resolver and delete a colleague. Each one reverts with the contract's own error, for example
+   `EACUnauthorizedAccountRoles … ROLE_SET_TEXT`.
+4. **An alias is refused:** `cloudops.biz.sodalabs.eth` points at the same registry as
+   `cloudops.dev.sodalabs.eth`. The relay allows `emma.cloudops.dev…` and refuses `emma.cloudops.biz…` as
+   `not-canonical`, so a second path to the same people can't dodge the limits on the first.
 
-1. **MultiBaas:** the deployment and its Administrators API key are in the server's `.env` (`MULTIBAAS_URL`,
-   `MULTIBAAS_API_KEY`). The **Providers** page shows **MultiBaas** as connected, on Ethereum Sepolia.
-2. **Contracts:** one setup script deploys the test token and the treasury vault, and uploads the escrow
-   template. It registers all of them in MultiBaas, funds the relay signer, and seeds some treasury history,
-   including one large payment to an address that isn't approved.
-3. **Delegate down the tree:** `org:seed` gives `sodalabs.eth`, `dev` and `cloudops` their blockchain
-   permissions: the network, the contracts, the methods, the approved recipients and the token allowances.
-4. Before the demo, Derek exists under `cloudops` (Demo 1 steps 1 and 2) with blockchain permissions ticked,
-   and his agent has read, track, prepare, submit, deploy and manage.
+### B. A fresh TEE quote (Phala)
 
-### The demo
+In the portal, open **Providers** and click **View attestation** on **TEE attestation**. The page makes a new
+random nonce, and the relay fetches a quote for it from the attestation service on Phala Cloud. Four checks:
 
-Open the portal on **Agents**, with the wallet connected. The **Agent task** panel sends a task as Derek's
-agent. The **Approvals** panel lists what waits for a human.
+- **Intel TDX quote:** the page reads the quote's bytes itself (version 4).
+- **Made for this request:** the nonce is inside the quote, so it can't be an old one.
+- **The quote pins the service's compose file:** the compose hash is inside the quote (MRCONFIGID), and the
+  compose file pins the exact image, `derek2403/attestation-server@sha256:2413…`.
+- **Intel signature and certificate chain verified:** Phala's public verifier checked it. **Open the report** or
+  **Verify on Phala** shows the same result on proof.t16z.com.
 
-1. **Monitor:** *"Review our treasury's recent transfers and flag unusually large outgoing payments."*
-   The agent reads the vault's transfer events through MultiBaas. It reports the block range, the amounts and
-   the recipients, and flags the large payment to the unapproved address, with its transaction link. A flag is
-   a rule match (over the threshold, or a recipient outside the approved list), not proof of wrongdoing.
-2. **Prepare:** *"Prepare a payment of 3 test tokens to our approved supplier."* The plan shows the network,
-   the signing wallet, the vault, `pay(supplier, 3)` and the estimated gas. It waits for approval.
-3. **Execute:** in **Approvals**, check the proposal and click **Approve** (a wallet signature over that exact
-   proposal). The relay checks everything again, reserves the allowance, signs with the relay signer and
-   submits through MultiBaas.
-4. **Track:** the proposal goes **Submitted → Confirmed** with its transaction hash and block. Select Derek in
-   **Access tree**: the payment counts against Derek, cloudops, dev and sodalabs.eth.
-5. **Deploy:** *"Deploy our approved escrow template for 5 test tokens to the supplier, with Derek as admin."*
-   The relay checks the constructor arguments. The admin is Derek, never the agent. Approve it. The escrow's
-   address appears, and MultiBaas now knows its contract.
-6. **Manage:** *"Check whether the escrow is paused, then propose the permitted management action."* It reads
-   `paused()`, proposes `pause()`, and after approval the **Paused** event shows in the activity log.
-7. **Reject:** each of these is refused before anything is signed, and the activity log names the rule:
-   - *"Pay 3 test tokens to 0x000000000000000000000000000000000000dEaD"*: the recipient isn't approved.
-   - *"Pay 500 test tokens to the supplier"*: over the allowance.
-   - *"Transfer ownership of the escrow to me"*: the method isn't permitted.
-8. **Revoke:** remove Derek in **Access tree**. The next task is refused with `access revoked`, for his agent
-   and its subagents alike. Transactions that were already confirmed stay confirmed.
+Click **Fresh quote**: a new nonce, a new quote, the checks again. Anyone can do the same from a terminal:
 
-**Narrower subagents:** a monitoring subagent can get **Read · Track** only. It can run step 1, and it is
-refused at step 2 even though its parent agent may prepare payments.
+```sh
+URL=https://917014871a337b76a5b3554e26b2d42a00499a45-8080.dstack-pha-prod9.phala.network
+curl -s "$URL/attestation?nonce=$(openssl rand -hex 32)"   # your nonce is the quote's report data
+curl -s "$URL/info"                                         # app id, compose hash, measurements
+```
+
+Say it plainly if asked: the quote covers the attestation service running in the TDX VM. The relay API itself
+runs on its own server.
+
+### C. MultiBaas is connected, and no agent can reach it directly (MultiBaas)
+
+1. On **Providers**, scroll to **Blockchain**. **MultiBaas (Curvegrid)** shows **Connected · URL and key set**,
+   with `MULTIBAAS_API_KEY` and `MULTIBAAS_URL` together. **Edit credentials** changes both in one dialog (sign
+   in with the root owner's wallet first). The key never leaves the relay.
+2. Show that connecting it authorizes nobody. With the PAT from Demo 2 (`set -a; . ./.env; set +a` in
+   `examples/weather-image-app`):
+   ```sh
+   curl -s "$RELAY_BASE_URL/multibaas/api/v0/chains/ethereum/status" -H "Authorization: Bearer $RELAY_API_KEY"
+   ```
+   It answers `403` with `sodalabs.eth does not allow multibaas`: nothing in the tree grants it. Even a name that
+   is allowed gets `403 the relay never forwards requests to MultiBaas (Curvegrid) directly`. Agents will only
+   reach it through blockchain actions delegated to them.
+
+### Not built yet: don't demo these
+
+These are designed but not implemented. The portal has no screens for them:
+
+- **MultiBaas blockchain agent:** delegated blockchain permissions on ENS (read, track, prepare, submit, deploy,
+  manage), an agent task panel, proposals with human approval, a treasury vault and an escrow template on
+  Sepolia.
+- **World ID incident approvals:** a risky subagent renewal is paused, an approver reviews the incident, and a
+  fresh World Selfie Check from the approver's enrolled World session is required before only the approved scope
+  resumes. The World app (`relay-incident-approval`) is registered, and its settings are in the server's `.env`.
+  A check against World's verify endpoint reaches proof verification, so the setup is correct.
 
 ## Build your own app
 
