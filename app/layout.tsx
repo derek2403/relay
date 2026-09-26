@@ -29,6 +29,7 @@ import "@/styles/live-agents.css";
 import "@/styles/live-policies.css";
 import "@/styles/live-setup.css";
 import "@/styles/live-providers.css";
+import "@/styles/live-chain.css";
 
 import { Providers } from "./providers";
 
