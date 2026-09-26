@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:4174. For a production build, run `npm run build`, then `npm start`.
+Open http://localhost:3000. For a production build, run `npm run build`, then `npm start`.
 
 ## Structure
 
