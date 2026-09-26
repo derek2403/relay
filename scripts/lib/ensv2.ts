@@ -320,10 +320,18 @@ export async function readAddr(pub: PublicClient, resolver: Address, name: strin
  * The resolver calls that make `name`'s records match `bundle` (and, for an
  * agent, addr(name) = its key): only records that differ are written, so
  * re-running is cheap and an old bundle on a re-used label is cleared.
- * PermissionedResolver setters take the DNS-encoded name.
+ * PermissionedResolver setters take the DNS-encoded name. `extra` records (e.g.
+ * `relay.chain`, "" to clear it) go into the same multicall.
  */
-export async function bundleWrites(pub: PublicClient, resolver: Address, name: string, bundle: Bundle, agent?: Address): Promise<Hex[]> {
-  const desired = bundleToRecords(bundle);
+export async function bundleWrites(
+  pub: PublicClient,
+  resolver: Address,
+  name: string,
+  bundle: Bundle,
+  agent?: Address,
+  extra: [key: string, value: string][] = [],
+): Promise<Hex[]> {
+  const desired = [...bundleToRecords(bundle), ...extra];
   const current = await readTexts(pub, resolver, name, desired.map(([k]) => k));
   const dns = dnsEncode(name);
   const calls = desired

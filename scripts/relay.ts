@@ -43,7 +43,7 @@ import { type PrivateKeyAccount, generatePrivateKey, privateKeyToAccount } from 
 
 import { tryNormalize } from "../lib/ens/names";
 import { RegistryRoles } from "../lib/ens/roles";
-import { type Bundle, type ProviderId, bundleRecordKeys, parseBundle } from "../lib/relay/bundle";
+import { type Bundle, PERIODS, type Period, type ProviderId, RECORD_KEYS, bundleRecordKeys, parseBundle } from "../lib/relay/bundle";
 import { countUnit } from "../lib/relay/catalog";
 import { DEFAULT_MAX_TOKEN_TTL_SEC, createToken } from "../lib/relay/token";
 import type { FundResponse, LevelView, OwnedResponse, PolicyResponse, StatusResponse } from "../lib/relay/types";
@@ -67,6 +67,23 @@ import {
   workspaceProblem,
   workspaceTargets,
 } from "./lib/cli-mode";
+import {
+  type ChainFlags,
+  ChainFlagError,
+  type GrantRecord,
+  absoluteUrl,
+  anyChainFlag,
+  approveTarget,
+  childGrant,
+  clean,
+  describeGrant,
+  grantText,
+  pausedLine,
+  proposalDetail,
+  proposalLine,
+  readGrant,
+  taskReport,
+} from "./lib/chain-cli";
 import { CODEX_PROVIDER_ID, DEFAULT_CODEX_MODEL, authScript, conflictingTables, withRelayCodexConfig, withoutRelayCodexConfig } from "./lib/codex-config";
 import { PAT_DEFAULT_HOURS, TOKEN_TTL_MARGIN_SEC, findPatSigner, patEnvLines, patExpiry, patName } from "./lib/pat";
 import {
@@ -114,6 +131,36 @@ class RevokedError extends Error {
     // The relay's refusal words (lib/relay/policy.ts revokedReason), so Codex and the CLI say one thing.
     super(`access revoked: ${removed} was removed or expired. Run ${CMD} login.`);
   }
+}
+
+/**
+ * The relay paused this name (an incident is open). Printed exactly, exit 1: the skill tells Codex
+ * to stop on "paused:" and report the incident, not to retry or write limits another way.
+ */
+class PausedError extends Error {}
+
+/** Throws PausedError when the relay answers { error: "paused", reason }. */
+function throwIfPaused(r: HttpResult) {
+  const err = relayError(r.json);
+  if (err?.error !== "paused") return;
+  const reason = clean(err.reason ?? "");
+  throw new PausedError(reason.startsWith("paused:") ? reason : `paused: ${reason || "an incident is open for this name"}`);
+}
+
+/** A --chain* flag problem as a UserError. */
+function grantOrThrow<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof ChainFlagError) throw new UserError(err.message);
+    throw err;
+  }
+}
+
+/** A name's `relay.chain` grant (on the resolver that serves it), or null. */
+async function readChainGrant(pub: Chain["pub"], resolver: Address | null | undefined, name: string): Promise<GrantRecord | null> {
+  if (!resolver) return null;
+  return readGrant((await readTexts(pub, resolver, name, [RECORD_KEYS.chain]))[RECORD_KEYS.chain]);
 }
 
 function fmtUsd(n: number | null | undefined): string {
@@ -301,7 +348,32 @@ type Opts = {
   help?: boolean;
   version?: boolean;
   "if-unset"?: boolean;
+  chain?: string;
+  "chain-to"?: string;
+  "chain-max"?: string;
+  "chain-limit"?: string;
+  "chain-period"?: string;
+  "chain-gas"?: string;
+  "no-delegate"?: boolean;
+  approve?: string;
+  period?: string;
+  days?: string;
+  reason?: string;
+  decision?: string;
+  category?: string;
 };
+
+/** The --chain* flags as the grant helpers take them. */
+const chainFlags = (opts: Opts): ChainFlags => ({
+  chain: opts.chain,
+  chainTo: opts["chain-to"],
+  chainMax: opts["chain-max"],
+  chainLimit: opts["chain-limit"],
+  chainPeriod: opts["chain-period"],
+  chainGas: opts["chain-gas"],
+  noDelegate: opts["no-delegate"],
+  approve: opts.approve,
+});
 
 /** A setting and where it came from (`config` prints both). */
 type Setting = { value: string; source: string };
@@ -606,6 +678,17 @@ async function ensureGas(chain: Chain, address: Address, userName: string, base:
 
 // --- init ----------------------------------------------------------------------------------------
 
+/** The workspace's named recipients ("supplier" -> address) from the relay, or {} when it can't say. */
+async function workspaceRecipients(opts: Opts): Promise<Record<string, string>> {
+  try {
+    const r = await http(`${relayUrl(opts)}/api/relay/chain/status`, {}, 10_000);
+    const rec = r.ok && r.json && typeof r.json === "object" ? (r.json as { recipients?: unknown }).recipients : null;
+    return rec && typeof rec === "object" ? (rec as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
 function cmdInit(opts: Opts) {
   const existing = readJson<UserKey>(files.user);
   if (existing && !opts.force) {
@@ -669,7 +752,7 @@ async function login(opts: Opts): Promise<Session> {
   const { account } = userKey();
   const base = relayUrl(opts);
   const previous = readJson<Session>(files.session);
-  if (previous && !opts.force && (!opts.name || tryNormalize(opts.name) === previous.user) && (await sessionStillValid(opts, previous))) {
+  if (previous && !opts.force && !anyChainFlag(chainFlags(opts)) && (!opts.name || tryNormalize(opts.name) === previous.user) && (await sessionStillValid(opts, previous))) {
     info(`Session still valid: ${previous.agent} until ${fmtClock(previous.expiry)} (${fmtLeft(previous.expiry - nowSec())} left).`);
     return previous;
   }
@@ -712,6 +795,13 @@ async function login(opts: Opts): Promise<Session> {
   }
   if (!bundle.keys.length) throw new UserError(`${userName} allows neither codex nor openai-images. Ask your admin.`);
   for (const p of ["codex", "openai-images"] as const) if (!allow(p)) info(`  ! ${userName} doesn't allow ${p}, so the agent won't get it`);
+  // Blockchain (MultiBaas): the agent gets the member's own grant (narrowed by --chain* flags), if it has one.
+  const flags = chainFlags(opts);
+  const userGrant = await readChainGrant(pub, entry.resolver, userName);
+  if (anyChainFlag(flags) && !userGrant) throw new UserError(`${userName} has no blockchain grant (relay.chain), so the agent can't get one. Ask your admin.`);
+  if (anyChainFlag(flags) && !allow("multibaas")) throw new UserError(`${userName} doesn't allow multibaas, so the agent can't get a blockchain grant. Ask your admin.`);
+  const chainWanted = !!userGrant && allow("multibaas") && (anyChainFlag(flags) || userGrant.delegate);
+  if (userGrant && !chainWanted && !anyChainFlag(flags)) info(`  ! ${userName}'s blockchain grant ${userGrant.delegate ? "needs multibaas in its keys" : "doesn't allow delegation"}, so the agent gets none`);
 
   const teamRegistry = userLevel.registry;
   const resolver = await resolverAddress(pub, account.address);
@@ -730,7 +820,12 @@ async function login(opts: Opts): Promise<Session> {
   const agentEntry = () => readEntry(pub, userRegistry!, agentLabel);
   const current = await agentEntry();
   const staleAgent = current.registered && !!current.owner && !isAddressEqual(current.owner, agent.account.address);
-  const limits = limitsText(bundle);
+  const recipients = chainWanted ? await workspaceRecipients(opts) : {};
+  const agentGrant = chainWanted ? grantOrThrow(() => childGrant(userGrant!, flags, expiry, userName, { recipients })) : null;
+  if (agentGrant) bundle.keys.push("multibaas");
+  // Written with the limits; "" clears a grant an earlier session's agent had.
+  const chainRecord: [string, string][] = [[RECORD_KEYS.chain, agentGrant ? grantText(agentGrant) : ""]];
+  const limits = limitsText(bundle) + (agentGrant ? ` · chain ${describeGrant(agentGrant)}` : "");
 
   const steps: Step[] = [
     { id: "resolver", title: `deployed your resolver (it holds your agents' limits)`, done: () => hasCode(pub, resolver), tx: () => tx.deployResolver(account.address) },
@@ -807,9 +902,9 @@ async function login(opts: Opts): Promise<Session> {
       id: "limits",
       title: `wrote ${agentName}'s limits: ${limits}`,
       deps: ["resolver"],
-      done: async () => (await bundleWrites(pub, resolver, agentName, bundle, agent.account.address)).length === 0,
+      done: async () => (await bundleWrites(pub, resolver, agentName, bundle, agent.account.address, chainRecord)).length === 0,
       tx: async () => {
-        const calls = await bundleWrites(pub, resolver, agentName, bundle, agent.account.address);
+        const calls = await bundleWrites(pub, resolver, agentName, bundle, agent.account.address, chainRecord);
         return calls.length ? tx.resolverMulticall(resolver, calls) : null;
       },
     },
@@ -1225,28 +1320,38 @@ function subagentLabel(raw: string | undefined, agent: string): string {
   return label;
 }
 
-async function cmdSubagentCreate(opts: Opts, rawLabel: string | undefined) {
-  const { account, session, chain, agentRegistry, agentExpiry, resolver } = await agentContext(opts);
-  const { pub } = chain;
-  const label = subagentLabel(rawLabel, session.agent);
-  const name = `${label}.${session.agent}`;
-  const codexUsd = opts.codex !== undefined ? positiveNumber(opts.codex, "--codex", 0.1) : undefined;
-  const images = opts.images !== undefined ? positiveNumber(opts.images, "--images", 1, { integer: true }) : undefined;
-  const minutes = positiveNumber(opts.minutes, "--minutes", 5);
-  const bundle: Bundle = { keys: [], caps: {}, maxes: {}, period: "total" };
-  // Codex $0.10 unless only images were asked for.
-  if (codexUsd !== undefined || images === undefined) {
-    bundle.keys.push("codex");
-    bundle.caps.codex = codexUsd ?? 0.1;
-  }
-  if (images !== undefined) {
-    bundle.keys.push("openai-images");
-    bundle.maxes!["openai-images"] = images;
-  }
+/** --period for a subagent's bundle (default total, as before). */
+function periodFlag(raw: string | undefined): Period {
+  if (raw === undefined) return "total";
+  const p = raw.trim().toLowerCase();
+  if (!(PERIODS as readonly string[]).includes(p)) throw new UserError(`--period must be ${PERIODS.join(", ")} (got "${raw}").`);
+  return p as Period;
+}
 
-  const sub = agentKeyOrNew(name);
-  // A subagent never outlives its agent: the walk would stop at the agent anyway.
-  const expiry = Math.min((await chainNow(pub)) + Math.round(minutes * 60), agentExpiry);
+/** A subagent's term in seconds: --days or --minutes (default 5 minutes, as before). */
+function termSec(opts: Opts, fallbackMinutes = 5): number {
+  if (opts.days !== undefined && opts.minutes !== undefined) throw new UserError("Give --days or --minutes, not both.");
+  if (opts.days !== undefined) return Math.round(positiveNumber(opts.days, "--days", 1) * 86_400);
+  return Math.round(positiveNumber(opts.minutes, "--minutes", fallbackMinutes) * 60);
+}
+
+/**
+ * The transactions that make a subagent `name` exist until `expiry` with `bundle` (and `chain`, the
+ * relay.chain text, "" for none), owned by its key with no roles. Shared by create and renew.
+ */
+async function writeSubagent(
+  ctx: Awaited<ReturnType<typeof agentContext>>,
+  label: string,
+  sub: { key: AgentKey; account: PrivateKeyAccount },
+  bundle: Bundle,
+  chainText: string,
+  expiry: number,
+  limits: string,
+): Promise<number> {
+  const { account, chain, agentRegistry, resolver } = ctx;
+  const { pub } = chain;
+  const name = `${label}.${ctx.session.agent}`;
+  const extra: [string, string][] = [[RECORD_KEYS.chain, chainText]];
   const entry = () => readEntry(pub, agentRegistry, label);
   const current = await entry();
   const stale = current.registered && !!current.owner && !isAddressEqual(current.owner, sub.account.address);
@@ -1254,8 +1359,6 @@ async function cmdSubagentCreate(opts: Opts, rawLabel: string | undefined) {
     const e = await entry();
     return e.registered && !!e.owner && isAddressEqual(e.owner, sub.account.address);
   };
-  const limits = limitsText(bundle);
-  info(`Creating ${name} (${limits}, ${fmtLeft(expiry - nowSec())})`);
   const steps: Step[] = [];
   if (stale) {
     steps.push({ id: "clear", title: `removed the old ${name}`, done: async () => !(await entry()).registered || (await ours()), tx: () => tx.unregister(agentRegistry, label) });
@@ -1271,7 +1374,7 @@ async function cmdSubagentCreate(opts: Opts, rawLabel: string | undefined) {
     },
     {
       id: "renew",
-      title: `extended ${name} to ${fmtClock(expiry)}`,
+      title: `extended ${name} to ${fmtDate(expiry)}`,
       deps: ["register"],
       done: async () => (await entry()).expiry >= expiry - 60,
       tx: () => tx.renew(agentRegistry, label, expiry),
@@ -1279,9 +1382,9 @@ async function cmdSubagentCreate(opts: Opts, rawLabel: string | undefined) {
     {
       id: "limits",
       title: `wrote its limits: ${limits}`,
-      done: async () => (await bundleWrites(pub, resolver, name, bundle, sub.account.address)).length === 0,
+      done: async () => (await bundleWrites(pub, resolver, name, bundle, sub.account.address, extra)).length === 0,
       tx: async () => {
-        const calls = await bundleWrites(pub, resolver, name, bundle, sub.account.address);
+        const calls = await bundleWrites(pub, resolver, name, bundle, sub.account.address, extra);
         return calls.length ? tx.resolverMulticall(resolver, calls) : null;
       },
     },
@@ -1289,7 +1392,120 @@ async function cmdSubagentCreate(opts: Opts, rawLabel: string | undefined) {
   await withTxLock(() => runSteps(new Sender(chain, account, done), steps, { skipped: (t) => done(`${t} (already done)`) }));
   const final = (await entry()).expiry || expiry;
   writeSecret(agentFile(name), { ...sub.key, expiry: final });
+  return final;
+}
+
+/** The agent's own grant, needed before a subagent can get one. */
+async function agentGrantFor(ctx: Awaited<ReturnType<typeof agentContext>>): Promise<GrantRecord> {
+  const g = await readChainGrant(ctx.chain.pub, ctx.resolver, ctx.session.agent);
+  if (!g) throw new UserError(`${ctx.session.agent} has no blockchain grant, so its subagents can't get one. Run ${CMD} login --chain … (your own name needs a grant).`);
+  return g;
+}
+
+async function cmdSubagentCreate(opts: Opts, rawLabel: string | undefined) {
+  const ctx = await agentContext(opts);
+  const { session, chain, agentExpiry } = ctx;
+  const { pub } = chain;
+  const label = subagentLabel(rawLabel, session.agent);
+  const name = `${label}.${session.agent}`;
+  const codexUsd = opts.codex !== undefined ? positiveNumber(opts.codex, "--codex", 0.1) : undefined;
+  const images = opts.images !== undefined ? positiveNumber(opts.images, "--images", 1, { integer: true }) : undefined;
+  const term = termSec(opts);
+  const bundle: Bundle = { keys: [], caps: {}, maxes: {}, period: periodFlag(opts.period) };
+  // Codex $0.10 unless only images were asked for.
+  if (codexUsd !== undefined || images === undefined) {
+    bundle.keys.push("codex");
+    bundle.caps.codex = codexUsd ?? 0.1;
+  }
+  if (images !== undefined) {
+    bundle.keys.push("openai-images");
+    bundle.maxes!["openai-images"] = images;
+  }
+
+  // A subagent never outlives its agent: the walk would stop at the agent anyway.
+  const expiry = Math.min((await chainNow(pub)) + term, agentExpiry);
+  const flags = chainFlags(opts);
+  let grant: GrantRecord | null = null;
+  if (anyChainFlag(flags)) {
+    const parent = await agentGrantFor(ctx);
+    const recipients = await workspaceRecipients(opts);
+    grant = grantOrThrow(() => childGrant(parent, flags, expiry, session.agent, { recipients }));
+    bundle.keys.push("multibaas");
+  }
+  const sub = agentKeyOrNew(name);
+  const limits = limitsText(bundle) + (grant ? ` · chain ${describeGrant(grant)}` : "");
+  info(`Creating ${name} (${limits}, ${fmtLeft(expiry - nowSec())})`);
+  const final = await writeSubagent(ctx, label, sub, bundle, grant ? grantText(grant) : "", expiry, limits);
   out(JSON.stringify({ name, expiry: final, limits }));
+}
+
+/**
+ * `relay subagent renew <label> [flags]`: asks the relay first (POST /api/relay/approvals/renewals).
+ * A renewal that widens anything (new recipient, higher limit, long term, …) pauses the subagent and
+ * opens an incident for a human approver: this prints `paused: …` and exits 1 without writing ENS.
+ * A clear renewal is written to ENS like `subagent create`.
+ */
+async function cmdSubagentRenew(opts: Opts, rawLabel: string | undefined) {
+  const ctx = await agentContext(opts);
+  const { session, chain, resolver, agentExpiry } = ctx;
+  const { pub } = chain;
+  const label = subagentLabel(rawLabel, session.agent);
+  const name = `${label}.${session.agent}`;
+  const sub = loadAgentKey(name);
+  if (!sub) throw new UserError(`No subagent ${name} here. Create it: ${CMD} subagent create ${label}`);
+  const base = relayUrl(opts);
+
+  // What it has now (its records on your resolver), changed only where a flag says so.
+  const texts = await readTexts(pub, resolver, name, [...bundleRecordKeys(), RECORD_KEYS.chain]);
+  const now = parseBundle(texts);
+  if (!now) throw new UserError(`${name} has no limits on ENS to renew. Create it again: ${CMD} subagent create ${label}`);
+  const bundle: Bundle = { keys: [...now.keys], caps: { ...now.caps }, maxes: { ...(now.maxes ?? {}) }, period: opts.period !== undefined ? periodFlag(opts.period) : now.period };
+  if (opts.codex !== undefined) {
+    if (!bundle.keys.includes("codex")) bundle.keys.push("codex");
+    bundle.caps.codex = positiveNumber(opts.codex, "--codex", 0.1);
+  }
+  if (opts.images !== undefined) {
+    if (!bundle.keys.includes("openai-images")) bundle.keys.push("openai-images");
+    bundle.maxes!["openai-images"] = positiveNumber(opts.images, "--images", 1, { integer: true });
+  }
+  const current = readGrant(texts[RECORD_KEYS.chain]);
+  // The term asked for (not capped by the agent's expiry: the relay judges the request as asked).
+  const asked = (await chainNow(pub)) + (opts.days !== undefined || opts.minutes !== undefined ? termSec(opts) : Math.max(60, agentExpiry - nowSec()));
+  const flags = chainFlags(opts);
+  let grant: GrantRecord | null = current;
+  if (anyChainFlag(flags) || current) {
+    const from = current ?? (await agentGrantFor(ctx));
+    // No parent checks: asking for more than the agent has is exactly what the relay reviews.
+    const recipients = await workspaceRecipients(opts);
+    grant = grantOrThrow(() => childGrant({ ...from, delegate: true, exp: Number.MAX_SAFE_INTEGER }, flags, asked, name, { checkParent: false, recipients }));
+    if (!flags.noDelegate) grant.delegate = from.delegate;
+    if (!bundle.keys.includes("multibaas")) bundle.keys.push("multibaas");
+  }
+
+  const agent = loadAgentKey(session.agent);
+  if (!agent) throw new UserError(`No key for ${session.agent} in ${HOME}. Run ${CMD} login.`);
+  const { token } = await signToken(agent.account, session.agent, agentExpiry, base);
+  const reason = opts.reason?.trim().slice(0, 2000);
+  const body = { subject: name, proposed: { bundle, ...(grant ? { chain: JSON.parse(grantText(grant)) as unknown } : {}), expiresAt: asked }, ...(reason ? { reason } : {}) };
+  info(`Asking the relay to renew ${name} (${limitsText(bundle)}${grant ? ` · chain ${describeGrant(grant)}` : ""}, until ${fmtDate(asked)})`);
+  const r = await http(`${base}/api/relay/approvals/renewals`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }, 30_000);
+  throwIfRevoked(r, session.agent);
+  throwIfPaused(r);
+  const j = (r.json ?? {}) as { status?: string; incident?: { id?: string; url?: string }; expectId?: string };
+  if (j.status === "paused") {
+    const id = String(j.incident?.id ?? "");
+    if (opts.json) out(JSON.stringify({ status: "paused", name, incident: id, url: absoluteUrl(j.incident?.url, base, `/?view=approvals&incident=${encodeURIComponent(id)}`) }));
+    throw new PausedError(pausedLine(name, id, absoluteUrl(j.incident?.url, base, `/?view=approvals&incident=${encodeURIComponent(id)}`)));
+  }
+  if (!r.ok || j.status !== "clear") {
+    throw new UserError(`The relay did not clear the renewal (${r.status}: ${describeRefusal(r)}). Nothing was written to ENS.`);
+  }
+  // Clear: write it as asked (the name itself can't outlive the agent).
+  const expiry = Math.min(asked, agentExpiry);
+  if (expiry < asked) info(`  ! ${name} can't outlive ${session.agent}: it ends at ${fmtDate(expiry)}`);
+  const limits = limitsText(bundle) + (grant ? ` · chain ${describeGrant(grant)}` : "");
+  const final = await writeSubagent(ctx, label, sub, bundle, grant ? grantText(grant) : "", expiry, limits);
+  out(JSON.stringify({ status: "clear", name, expiry: final, limits, expectId: j.expectId ?? null }));
 }
 
 async function cmdSubagentList(opts: Opts) {
@@ -1346,6 +1562,154 @@ async function cmdSubagentRemove(opts: Opts, rawLabel: string | undefined) {
   }
   fs.rmSync(agentFile(name), { force: true });
   if (opts.json) out(JSON.stringify({ removed: name }));
+}
+
+// --- Blockchain (MultiBaas through the relay) -------------------------------------------------------
+
+/**
+ * A chain route called as the agent or a subagent (--as). "paused" and "access revoked" end the
+ * command like everywhere else; any other refusal prints the relay's rule and reason.
+ */
+async function chainRequest(opts: Opts, method: "GET" | "POST", route: string, body?: unknown, timeoutMs = 60_000): Promise<{ actor: Actor; base: string; json: Record<string, unknown> }> {
+  const actor = await resolveActor(opts);
+  const base = relayUrl(opts);
+  const { token } = await signToken(actor.account, actor.name, actor.expiry, base);
+  const headers: Record<string, string> = { authorization: `Bearer ${token}` };
+  if (body !== undefined) headers["content-type"] = "application/json";
+  const r = await http(`${base}/api/relay/chain${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }, timeoutMs);
+  throwIfRevoked(r, actor.name);
+  throwIfPaused(r);
+  if (!r.ok) {
+    const rule = (r.json as { rule?: unknown } | null)?.rule;
+    // A blocked proposal comes back as the stored proposal: show it, not an error.
+    // The relay sends {error:"blocked", rule, reason, proposal} (403 or 422); a bare proposal is accepted too.
+    const body = r.json as { id?: unknown; state?: unknown; proposal?: unknown } | null;
+    const j = (body?.proposal && typeof body.proposal === "object" ? body.proposal : body) as { id?: unknown; state?: unknown } | null;
+    if (j && typeof j.id === "string" && j.state === "blocked") return { actor, base, json: j as Record<string, unknown> };
+    throw new UserError(clean(`refused by the relay${typeof rule === "string" ? ` [${rule}]` : ""}: ${describeRefusal(r)}`));
+  }
+  return { actor, base, json: (r.json ?? {}) as Record<string, unknown> };
+}
+
+async function cmdChain(opts: Opts, rest: string[]) {
+  const [action, ...args] = rest;
+  switch (action) {
+    case "task": {
+      const task = args.join(" ").trim();
+      if (!task) throw new UserError(`Give the task in quotes, e.g. ${CMD} chain task "review the vault's recent transfers"`);
+      if (task.length > 4000) throw new UserError("The task is too long (4000 characters at most).");
+      const { actor, json } = await chainRequest(opts, "POST", "/task", { task }, 300_000);
+      if (opts.json) return out(JSON.stringify(json, null, 2));
+      info(`Ran as ${actor.name}`);
+      for (const line of taskReport(json)) out(line);
+      return;
+    }
+    case "proposals":
+    case "ls": {
+      if (args.length) throw new UserError(`Unexpected "${args[0]}". Use: ${CMD} chain proposals [--as <label>] [--all]`);
+      const { json } = await chainRequest(opts, "GET", `/proposals?scope=${opts.all ? "subtree" : "mine"}`);
+      const list = (Array.isArray(json.proposals) ? json.proposals : Array.isArray(json) ? json : []) as Record<string, unknown>[];
+      if (opts.json) return out(JSON.stringify(list, null, 2));
+      if (!list.length) return out("No proposals.");
+      for (const p of list) out(proposalLine(p));
+      return;
+    }
+    case "submit": {
+      const id = args[0];
+      if (!id || args.length > 1 || !/^prp_[A-Za-z0-9_-]+$/.test(id)) throw new UserError(`Use: ${CMD} chain submit <prp_…> [--as <label>]`);
+      const { json } = await chainRequest(opts, "POST", `/proposals/${encodeURIComponent(id)}/submit`, {});
+      const p = (json.proposal && typeof json.proposal === "object" ? json.proposal : json) as Record<string, unknown>;
+      if (opts.json) return out(JSON.stringify(p, null, 2));
+      for (const line of proposalDetail(p)) out(line);
+      return;
+    }
+    case "status": {
+      const id = args[0];
+      if (args.length > 1) throw new UserError(`Use: ${CMD} chain status [<prp_…>] [--as <label>]`);
+      if (!id) {
+        // The workspace: network, block, signer, vault (public, no token needed).
+        const base = relayUrl(opts);
+        const r = await http(`${base}/api/relay/chain/status`, {}, 20_000);
+        if (!r.ok) throw new UserError(`The relay's chain status failed (${r.status}: ${describeRefusal(r)}).`);
+        return out(JSON.stringify(r.json, null, 2));
+      }
+      if (!/^prp_[A-Za-z0-9_-]+$/.test(id)) throw new UserError(`"${id}" is not a proposal id (prp_…).`);
+      const { json } = await chainRequest(opts, "GET", `/proposals/${encodeURIComponent(id)}`);
+      const p = (json.proposal && typeof json.proposal === "object" ? json.proposal : json) as Record<string, unknown>;
+      if (opts.json) return out(JSON.stringify(p, null, 2));
+      for (const line of proposalDetail(p)) out(line);
+      return;
+    }
+    default:
+      throw new UserError(`Use: ${CMD} chain task "<task>" | proposals | submit <id> | status [<id>]  (all take --as <label>)`);
+  }
+}
+
+// --- Approvals (you, as a human approver) -------------------------------------------------------------
+
+/**
+ * `relay approve <prp_…> [--decision approve|reject]`: approves or rejects a blockchain proposal with
+ * your own key (a wallet signature over the exact proposal the relay shows). Incidents need a World ID
+ * Selfie Check on your phone, so for inc_… this only prints where to review it in the portal.
+ */
+async function cmdApprove(opts: Opts, rest: string[]) {
+  const [id, ...more] = rest;
+  if (!id || more.length) throw new UserError(`Use: ${CMD} approve <prp_…|inc_…> [--decision approve|reject]`);
+  const base = relayUrl(opts);
+  const kind = approveTarget(id);
+  if (kind === "incident") {
+    out(`World verification is done in the portal: ${absoluteUrl(null, base, `/?view=approvals&incident=${encodeURIComponent(id)}`)}`);
+    return;
+  }
+  if (kind !== "proposal") {
+    throw new UserError(`"${id}" is not a proposal (prp_…) or incident (inc_…) id. Challenges started in the portal are signed in the portal.`);
+  }
+  const decision = (opts.decision ?? "approve").trim().toLowerCase();
+  if (decision !== "approve" && decision !== "reject") throw new UserError(`--decision must be approve or reject (got "${opts.decision}").`);
+  const { account } = userKey();
+  const post = (route: string, body: unknown) =>
+    http(`${base}/api/relay/approvals/${route}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, 60_000);
+
+  const c = await post("challenge", { subject: { kind: "proposal", id }, decision, approver: account.address });
+  if (!c.ok) throw new UserError(clean(`The relay refused the ${decision} challenge (${c.status}: ${describeRefusal(c)}).`));
+  const raw = ((c.json as { challenge?: unknown } | null)?.challenge ?? c.json) as { id?: unknown; challengeId?: unknown; message?: unknown; digest?: unknown } | null;
+  // The relay answers {challengeId, message, digest, …}; {id, message} (or wrapped in {challenge}) is accepted too.
+  const ch = raw ? { ...raw, id: raw.challengeId ?? raw.id } : null;
+  if (!ch || typeof ch.id !== "string" || typeof ch.message !== "string") throw new UserError("The relay's challenge had no id or message.");
+  // What you sign is exactly what is shown here (the relay binds it to the proposal's digest).
+  info(`You are signing (${account.address}):`);
+  for (const line of clean(ch.message).split("\n")) info(`  ${line}`);
+  const signature = await account.signMessage({ message: ch.message });
+  const r = await post("confirm", { challengeId: ch.id, signature });
+  if (!r.ok) throw new UserError(clean(`The relay did not accept the ${decision} (${r.status}: ${describeRefusal(r)}). Nothing changed.`));
+  if (opts.json) return out(JSON.stringify(r.json, null, 2));
+  done(`${decision === "approve" ? "approved" : "rejected"} ${id}${decision === "approve" ? ": the agent submits it next" : ""}`);
+}
+
+/** `relay report <subagent> "<text>"`: the agent reports a subagent it thinks is misbehaving (untrusted text; it may pause it). */
+async function cmdReport(opts: Opts, rest: string[]) {
+  const [who, ...words] = rest;
+  const text = words.join(" ").trim();
+  if (!who || !text) throw new UserError(`Use: ${CMD} report <subagent label> "<what you saw>" [--category …]`);
+  const session = requireSession();
+  const subject = who.includes(".") ? tryNormalize(who) : `${subagentLabel(who, session.agent)}.${session.agent}`;
+  if (!subject || (subject !== session.agent && !subject.endsWith(`.${session.agent}`))) throw new UserError(`${who} is not ${session.agent} or one of its subagents.`);
+  const agent = loadAgentKey(session.agent);
+  if (!agent) throw new UserError(`No key for ${session.agent} in ${HOME}. Run ${CMD} login.`);
+  const base = relayUrl(opts);
+  const { token } = await signToken(agent.account, session.agent, session.expiry, base);
+  const category = (opts.category ?? "other").trim().toLowerCase().slice(0, 40);
+  const r = await http(
+    `${base}/api/relay/approvals/reports`,
+    { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ subject, category, explanation: text.slice(0, 2000) }) },
+    30_000,
+  );
+  throwIfRevoked(r, session.agent);
+  if (!r.ok) throw new UserError(clean(`The relay refused the report (${r.status}: ${describeRefusal(r)}).`));
+  const j = (r.json ?? {}) as { incident?: { id?: string; url?: string } | null; status?: string };
+  if (opts.json) return out(JSON.stringify(r.json, null, 2));
+  if (j.incident?.id) out(pausedLine(subject, j.incident.id, absoluteUrl(j.incident.url, base, `/?view=approvals&incident=${encodeURIComponent(j.incident.id)}`)));
+  else done(`reported ${subject}; a human reviews it`);
 }
 
 // --- Acting as the agent or a subagent ------------------------------------------------------------
@@ -1596,12 +1960,19 @@ function help(): string {
     ["init [--relay URL]", "Create your key and print your address (send it to your admin)"],
     ["whoami [--json]", "Your address, names, balance, agent and subagents with spend"],
     ["login [--name N]", "Set up your agent codex.<your name> (Codex $0.30, 1 image, 8 h) and plain `codex`"],
-    ["", "      [--codex USD] [--images N] [--hours H] [--force]"],
+    ["", "      [--codex USD] [--images N] [--hours H] [--force] [chain flags]"],
     ["codex [-- <codex args>]", "Log in if needed, then start Codex through the relay"],
     ["", `(${CMD} codex exec "…" runs codex exec the same way)`],
-    ["subagent create <label> [--codex USD] [--images N] [--minutes M]"],
+    ["subagent create <label> [--codex USD] [--images N] [--minutes M | --days D] [--period P] [chain flags]"],
     ["subagent list [--json]"],
+    ['subagent renew <label> [--days D] [--codex USD] [chain flags] [--reason "…"]', "Ask the relay first; a wider renewal pauses it for review"],
     ["subagent remove <label>"],
+    ['chain task "<task>" [--as <label>]', "Blockchain task (MultiBaas): plan, reads, proposals, report"],
+    ["chain proposals [--as <label>] [--all]", "Your proposals and their states"],
+    ["chain submit <prp_…> [--as <label>]", "Submit an approved proposal (the relay signs)"],
+    ["chain status [<prp_…>]", "A proposal's state, tx and block (no id: the workspace)"],
+    ["approve <prp_…|inc_…> [--decision D]", "Approve or reject a proposal with your key (approve|reject)"],
+    ['report <label> "<text>" [--category C]', "Report a subagent to a human (may pause it)"],
     ['exec --as <label> "<task>"', "Run codex exec as a subagent"],
     ['image --as <label> --prompt "…" [--out file.png] [--size 1024x1024]'],
     ["token [--as <label>]", "Print a relay token (for the agent, or a subagent)"],
@@ -1626,6 +1997,9 @@ function help(): string {
     "",
     ...lines,
     "",
+    "Chain flags: --chain read,track,prepare,submit,deploy,manage  --chain-to supplier,0x…  --chain-max STD  --chain-limit STD",
+    "             --chain-period month|day|total  --chain-gas N  --no-delegate  --approve always|never|above:STD",
+    "",
     `Options: --relay URL (or RELAY_URL), --rpc URL (or RELAY_RPC_URL). Files live in ${HOME} (RELAY_HOME).`,
     `${CMD} codex runs Codex in ${where}.`,
     MODE === "installed"
@@ -1635,7 +2009,10 @@ function help(): string {
 }
 
 // Flags that take a value, so the command can be found before parsing (everything after "codex" is Codex's).
-const VALUE_FLAGS = new Set(["--relay", "--rpc", "--name", "--as", "--hours", "--minutes", "--codex", "--images", "--prompt", "--out", "-o", "--size", "--model", "-m"]);
+const VALUE_FLAGS = new Set([
+  "--relay", "--rpc", "--name", "--as", "--hours", "--minutes", "--codex", "--images", "--prompt", "--out", "-o", "--size", "--model", "-m",
+  "--chain", "--chain-to", "--chain-max", "--chain-limit", "--chain-period", "--chain-gas", "--approve", "--period", "--days", "--reason", "--decision", "--category",
+]);
 /** Flags Codex doesn't have, taken as ours when they follow "codex". */
 const CODEX_OWN_FLAGS = new Set(["--relay", "--rpc", "--name", "--hours", "--codex", "--images", "--force"]);
 
@@ -1672,6 +2049,19 @@ async function main() {
         help: { type: "boolean", short: "h" },
         version: { type: "boolean" },
         "if-unset": { type: "boolean" },
+        chain: { type: "string" },
+        "chain-to": { type: "string" },
+        "chain-max": { type: "string" },
+        "chain-limit": { type: "string" },
+        "chain-period": { type: "string" },
+        "chain-gas": { type: "string" },
+        "no-delegate": { type: "boolean" },
+        approve: { type: "string" },
+        period: { type: "string" },
+        days: { type: "string" },
+        reason: { type: "string" },
+        decision: { type: "string" },
+        category: { type: "string" },
       },
     }) as { values: Opts; positionals: string[] };
   } catch (err) {
@@ -1692,6 +2082,9 @@ async function main() {
     return;
   }
   if (command === "exec") return cmdExec(opts, rest);
+  if (command === "chain") return cmdChain(opts, rest);
+  if (command === "report") return cmdReport(opts, rest);
+  if (command === "approve") return cmdApprove(opts, rest);
 
   switch (command) {
     case "init":
@@ -1705,8 +2098,9 @@ async function main() {
       if (more.length) throw new UserError(`Unexpected "${more[0]}". See ${CMD} help`);
       if (action === "create") return cmdSubagentCreate(opts, label);
       if (action === "list" || action === "ls") return cmdSubagentList(opts);
+      if (action === "renew") return cmdSubagentRenew(opts, label);
       if (action === "remove" || action === "rm") return cmdSubagentRemove(opts, label);
-      throw new UserError(`Use: ${CMD} subagent create|list|remove`);
+      throw new UserError(`Use: ${CMD} subagent create|list|renew|remove`);
     }
     case "image":
       return cmdImage(opts);
@@ -1729,6 +2123,7 @@ async function main() {
 
 main().catch((err) => {
   if (err instanceof RevokedError) info(err.message);
+  else if (err instanceof PausedError) out(err.message);
   else if (err instanceof UserError) info(`error: ${err.message}`);
   else {
     info(`error: ${shortError(err)}`);
