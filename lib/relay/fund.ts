@@ -30,12 +30,12 @@ import {
   type Hex,
   type PublicClient,
   createPublicClient,
-  createWalletClient,
   formatEther,
   getAddress,
   http,
   isAddress,
   isAddressEqual,
+  keccak256,
   parseEther,
 } from "viem";
 import { sepolia } from "viem/chains";
@@ -176,6 +176,9 @@ export async function handleFund(request: Request, deps: FundDeps): Promise<Resp
   return reply(200, { funded: true, address: owner, amountEth: config.funder.amountEth, txHash });
 }
 
+/** Public Sepolia nodes a signed top-up is also offered to when the configured RPC refuses it. */
+const BROADCAST_FALLBACK_RPCS = ["https://sepolia.gateway.tenderly.co", "https://ethereum-sepolia-rpc.publicnode.com"];
+
 /** The funder wallet for this config, or null without FUNDER_PRIVATE_KEY. Reused per RPC URL and address. */
 export function funderWallet(config: RelayConfig): FunderWallet | null {
   const address = config.funder.address;
@@ -186,13 +189,52 @@ export function funderWallet(config: RelayConfig): FunderWallet | null {
   if (cached) return cached;
   const account = config.funder.account();
   if (!account) return null;
-  const transport = http(config.rpcUrl, { timeout: 30_000 });
-  const reader = createPublicClient({ chain: sepolia, transport }) as PublicClient;
-  const writer = createWalletClient({ account, chain: sepolia, transport });
+  const client = (url: string) => createPublicClient({ chain: sepolia, transport: http(url, { timeout: 30_000 }) }) as PublicClient;
+  const reader = client(config.rpcUrl);
+  // Signed here and sent raw, to the configured RPC first and then to public nodes: some hosted
+  // RPCs refuse valid raw transactions, and viem's wallet path adds an eth_fillTransaction round trip.
+  const broadcasters = [reader, ...BROADCAST_FALLBACK_RPCS.filter((url) => url !== config.rpcUrl).map(client)];
   const wallet: FunderWallet = {
     address: account.address,
     getBalance: (a) => reader.getBalance({ address: a }),
-    send: (to, value) => writer.sendTransaction({ account, chain: sepolia, to, value }),
+    send: async (to, value) => {
+      const [nonce, fees, gas] = await Promise.all([
+        reader.getTransactionCount({ address: account.address, blockTag: "pending" }),
+        reader.estimateFeesPerGas(),
+        reader.estimateGas({ account: account.address, to, value }),
+      ]);
+      const signed = await account.signTransaction({
+        chainId: sepolia.id,
+        type: "eip1559",
+        to,
+        value,
+        nonce,
+        gas,
+        maxFeePerGas: fees.maxFeePerGas,
+        maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+      });
+      const hash = keccak256(signed);
+      let lastError: unknown;
+      for (const node of broadcasters) {
+        for (let attempt = 1; ; attempt++) {
+          try {
+            await node.sendRawTransaction({ serializedTransaction: signed });
+            return hash;
+          } catch (err) {
+            lastError = err;
+            // A node that errors may still have taken it.
+            if (await reader.getTransaction({ hash }).catch(() => null)) return hash;
+            // An EIP-7702 delegated funder may have only one pending transaction; wait for the other to clear.
+            if (/in-flight transaction limit/i.test(String((err as { details?: string }).details ?? err)) && attempt < 8) {
+              await new Promise((res) => setTimeout(res, 3000));
+              continue;
+            }
+            break;
+          }
+        }
+      }
+      throw lastError;
+    },
     confirm: async (hash) => {
       await reader.waitForTransactionReceipt({ hash, timeout: 90_000 });
     },
