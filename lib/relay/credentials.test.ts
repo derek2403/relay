@@ -67,6 +67,19 @@ test("slots: one per catalog key variable (OpenAI shared) plus the Mailchimp ups
   assert.throws(() => checkUpstreamValue("RELAY_UPSTREAM_MAILCHIMP", "http://us21.api.mailchimp.com"), CredentialsError);
 });
 
+test("slots: MultiBaas keeps its key and deployment URL together, and the URL must be an https multibaas.com host", () => {
+  const key = slotFor("MULTIBAAS_API_KEY")!;
+  const url = slotFor("MULTIBAAS_URL")!;
+  assert.deepEqual([key.apis, key.secret, key.label], [["multibaas"], true, "MultiBaas API key"]);
+  assert.deepEqual([url.apis, url.secret, url.kind, url.label], [["multibaas"], false, "upstream", "MultiBaas deployment URL"]);
+  assert.equal(checkUpstreamValue("MULTIBAAS_URL", "https://KKK123.multibaas.com/"), "https://kkk123.multibaas.com");
+  assert.equal(checkUpstreamValue("MULTIBAAS_URL", "https://kkk123.multibaas.com/api/v0"), "https://kkk123.multibaas.com");
+  // The relay sends its MultiBaas key to this host: nothing else is accepted.
+  for (const bad of ["http://kkk123.multibaas.com", "https://kkk123.multibaas.com.evil.example", "https://evil.example/kkk123.multibaas.com", "https://a.b.multibaas.com", "kkk123", "https://kkk123.multibaas.com/other"]) {
+    assert.throws(() => checkUpstreamValue("MULTIBAAS_URL", bad), CredentialsError, bad);
+  }
+});
+
 test("the store persists encrypted with mode 0600 and reloads", () => {
   const dir = tempDir();
   const store = storeIn(dir);

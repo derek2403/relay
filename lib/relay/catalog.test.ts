@@ -44,7 +44,7 @@ function deps(env: Record<string, string> = {}) {
 
 test("catalog: every provider has a spec; codex and openai-images share the OpenAI key", () => {
   assert.deepEqual(Object.keys(PROVIDER_SPECS).sort(), [...PROVIDER_IDS].sort());
-  assert.deepEqual(PROVIDER_IDS, ["claude", "codex", "openai-images", "gemini", "github", "railway", "vercel", "linear", "canva", "hubspot", "mailchimp", "stripe", "notion", "slack", "weather", "mock"]);
+  assert.deepEqual(PROVIDER_IDS, ["claude", "codex", "openai-images", "gemini", "github", "railway", "vercel", "linear", "canva", "hubspot", "mailchimp", "stripe", "notion", "slack", "weather", "multibaas", "mock"]);
   const config = loadConfig({ OPENAI_API_KEY: KEYS.OPENAI_API_KEY });
   assert.equal(config.keyFor("codex"), KEYS.OPENAI_API_KEY);
   assert.equal(config.keyFor("openai-images"), KEYS.OPENAI_API_KEY);
@@ -72,7 +72,7 @@ test("catalog: weather is OpenWeatherMap with its key in ?appid=, in its own Dat
     note: "Current weather and forecasts by city: /data/2.5/weather?q=Tokyo&units=metric.",
   });
   assert.equal(CATEGORY_LABELS.data, "Data");
-  assert.deepEqual(Object.keys(CATEGORY_LABELS), ["ai", "dev", "marketing", "business", "data", "test"]);
+  assert.deepEqual(Object.keys(CATEGORY_LABELS), ["ai", "dev", "marketing", "business", "data", "blockchain", "test"]);
   assert.equal(countUnit("weather"), "requests");
   assert.equal(loadConfig({}).upstreams.weather, "https://api.openweathermap.org");
   // The key goes in the query, not a header: the client's token is dropped and no header replaces it.
@@ -206,6 +206,43 @@ test("forwarding: Gemini takes the token from ?key= or x-goog-api-key, strips it
   const entries = await waitForLog(d.meter, 4);
   const charged = entries.filter((e) => e.allowed).map((e) => e.costUsd);
   assert.deepEqual(charged.sort(), [0, 0.01, 0.01]);
+});
+
+test("catalog: MultiBaas needs its own deployment URL and key, and has no route of its own", () => {
+  const entry = catalogEntry("multibaas");
+  assert.equal(entry.category, "blockchain");
+  assert.equal(entry.keyEnv, "MULTIBAAS_API_KEY");
+  assert.equal(entry.upstreamEnv, "MULTIBAAS_URL");
+  assert.equal(entry.typedOnly, true);
+  assert.equal(CATEGORY_LABELS.blockchain, "Blockchain");
+
+  const url = "https://abc123.multibaas.com";
+  assert.ok(!loadConfig({}).isConfigured("multibaas"));
+  assert.ok(!loadConfig({ MULTIBAAS_API_KEY: "k" }).isConfigured("multibaas"), "a key without a URL is not enough");
+  assert.ok(!loadConfig({ MULTIBAAS_URL: url }).isConfigured("multibaas"), "a URL without a key is not enough");
+  const both = loadConfig({ MULTIBAAS_URL: `${url}/`, MULTIBAAS_API_KEY: "k" });
+  assert.ok(both.isConfigured("multibaas"));
+  assert.equal(both.upstreams.multibaas, url);
+  assert.equal(loadConfig({ MULTIBAAS_URL: "not a url", MULTIBAAS_API_KEY: "k" }).upstreams.multibaas, null);
+
+  // No path is forwarded, and RELAY_EXTRA_ROUTES can't open one.
+  for (const [method, path] of [["GET", "/api/v0/chains/ethereum/status"], ["POST", "/api/v0/chains/ethereum/transactions/submit"], ["GET", "/"]]) {
+    assert.equal(routeFor("multibaas", method, path.split("/").filter(Boolean)), null, `${method} ${path}`);
+  }
+  assert.deepEqual(loadConfig({ RELAY_EXTRA_ROUTES: "multibaas:GET /api/v0/*" }).extraRoutes, []);
+});
+
+test("forwarding: MultiBaas is refused before anything is sent, even when allowed and configured", async () => {
+  const d = deps({ MULTIBAAS_URL: up.url, MULTIBAAS_API_KEY: "mb-REAL-KEY-0123456789" });
+  const before = up.seen.length;
+  const kr = await tokenFor(agent, LEAF);
+  for (const [method, path] of [["GET", "/api/v0/chains/ethereum/status"], ["POST", "/api/v0/chains/ethereum/transactions/submit"]]) {
+    const r = await relayJson(d, "multibaas", path, { kr, method, body: method === "POST" ? {} : undefined });
+    assert.equal(r.status, 403, r.text);
+    assert.match(r.text, /never forwards requests to MultiBaas/);
+  }
+  assert.equal(up.seen.length, before, "nothing reached the upstream");
+  assert.ok(!JSON.stringify(await waitForLog(d.meter, 2)).includes("mb-REAL-KEY"), "the log never holds the key");
 });
 
 test("forwarding: weather adds ?appid=<the relay's key> upstream, keeps the query, and never sends the token", async () => {

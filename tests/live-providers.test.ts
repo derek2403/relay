@@ -88,7 +88,7 @@ test("keyless APIs: the test API is built in; weather has a key, so it is neithe
 
 test("catalog groups keep category order and cover every API", () => {
   const groups = groupCatalog();
-  assert.deepEqual(groups.map((g) => g.category), ["ai", "dev", "marketing", "business", "data", "test"]);
+  assert.deepEqual(groups.map((g) => g.category), ["ai", "dev", "marketing", "business", "data", "blockchain", "test"]);
   assert.deepEqual(
     groups.find((g) => g.category === "data")!.entries.map((e) => [e.id, e.category]),
     [["weather", "data"]],
