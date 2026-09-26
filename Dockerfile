@@ -25,6 +25,8 @@ COPY --from=build --chown=node:node /app/package.json /app/next.config.mjs ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/.next ./.next
 COPY --from=build --chown=node:node /app/public ./public
+# The blockchain workspace (contract addresses and hashes, no keys) the relay reads at runtime.
+COPY --from=build --chown=node:node /app/org/chain.json ./org/chain.json
 RUN mkdir -p /data && chown node:node /data
 USER node
 EXPOSE 3000
