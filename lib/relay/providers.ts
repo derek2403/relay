@@ -16,6 +16,7 @@ import { type Address } from "viem";
 import { tryNormalize } from "../ens/names";
 import { type ProviderId, isProviderId } from "./bundle";
 import { type Auth, CATALOG, type CatalogEntry, PROVIDER_IDS, answeredByRelay, catalogEntry } from "./catalog";
+import { type CapUsage, codexCapUsage, codexLimitHeaders, usageLimitResponse } from "./codex-limits";
 import { applyDnsAlias, upstreamEnvName } from "./config";
 import { isChainReadError } from "./ens";
 import { type LiveChecker, liveCheckerFor } from "./live";
@@ -146,6 +147,8 @@ export function relayPathFromUrl(url: URL, provider: string): string {
 const DROP_REQUEST = new Set([
   "authorization",
   "x-api-key",
+  // A Codex login's secret (codex-login.ts).
+  "x-relay-login",
   "api-key",
   "cookie",
   "host",
@@ -485,8 +488,35 @@ const UPSTREAM_TIMEOUT_MS = 15 * 60_000;
 /** Log reason for a call ended because its name was removed or expired while it ran. */
 export const KILLED_REASON = "killed: access revoked";
 
-const errorResponse = (status: number, error: string, reason?: string, headers: Record<string, string> = {}) =>
+const relayErrorResponse = (status: number, error: string, reason?: string, headers: Record<string, string> = {}) =>
   Response.json({ error, ...(reason ? { reason } : {}) } satisfies RelayError, { status, headers: { "cache-control": "no-store", ...headers } });
+
+/** The relay's refusal in OpenAI's error shape, whose `error.message` Codex shows. */
+export const openaiErrorResponse = (status: number, error: string, reason?: string, headers: Record<string, string> = {}) => {
+  const code = error.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  return Response.json(
+    { error: { message: reason || error, type: code, code } },
+    { status, headers: { "cache-control": "no-store", ...headers } },
+  );
+};
+
+/** A caller the route has already authenticated (a Codex login session), used instead of a token from the request. */
+export type RelayCaller = {
+  name: string;
+  /** Must still own `name` on ENS: checked on every call like a token's signer. */
+  signer: Address;
+  /** When the credential was issued (unix s), for relay.nbf. */
+  issuedAt: number;
+};
+
+export type RelayCallOptions = {
+  caller?: RelayCaller;
+  /**
+   * Answer the way Codex understands: refusals as OpenAI errors, and a spent codex cap as
+   * 429 usage_limit_reached (which Codex shows without retrying).
+   */
+  codexClient?: boolean;
+};
 
 /** Reads the request body, stopping as soon as it passes `max` bytes (chunked uploads have no content-length). */
 async function readBody(request: Request, max: number): Promise<Uint8Array | "too-large"> {
@@ -557,8 +587,9 @@ const is2xx = (status: number) => status >= 200 && status < 300;
  * Requests refused before the caller proves it owns a name are counted but
  * not logged, so anyone can't flush the log with junk.
  */
-export async function handleRelayRequest(request: Request, providerParam: string, deps: RelayDeps): Promise<Response> {
+export async function handleRelayRequest(request: Request, providerParam: string, deps: RelayDeps, opts: RelayCallOptions = {}): Promise<Response> {
   const { config, meter } = deps;
+  const errorResponse = opts.codexClient ? openaiErrorResponse : relayErrorResponse;
   const limits = deps.limits ?? relayLimits();
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
@@ -585,21 +616,29 @@ export async function handleRelayRequest(request: Request, providerParam: string
   const entry = spec.entry;
 
   // 1. Token: signed by the agent's key, not expired, not too long-lived, for this relay.
-  const token = requestToken(request, url, provider);
-  if (!token) return reject(401, "missing token", "Send a Keyless Relay token (kr1...) as x-api-key or Authorization: Bearer.");
+  //    (A route that authenticated the caller itself passes it instead.)
   let signer: Address;
   let tokenName: string;
   let issuedAt: number;
-  try {
-    const verified = await verifyToken(token, deps.nowSec?.(), { maxTtlSec: config.maxTokenTtlSec, audiences: config.audiences });
-    signer = verified.signer;
-    issuedAt = verified.payload.iat;
-    const normalized = tryNormalize(verified.payload.name);
-    if (!normalized) throw new TokenError("token names an invalid ENS name");
+  if (opts.caller) {
+    const normalized = tryNormalize(opts.caller.name);
+    if (!normalized) return reject(401, "bad token", "the caller's name is not a valid ENS name");
+    ({ signer, issuedAt } = opts.caller);
     tokenName = normalized;
-  } catch (err) {
-    const reason = err instanceof TokenError ? err.message : "bad token";
-    return reject(401, reason.includes("expired") ? "token expired" : "bad token", reason);
+  } else {
+    const token = requestToken(request, url, provider);
+    if (!token) return reject(401, "missing token", "Send a Keyless Relay token (kr1...) as x-api-key or Authorization: Bearer.");
+    try {
+      const verified = await verifyToken(token, deps.nowSec?.(), { maxTtlSec: config.maxTokenTtlSec, audiences: config.audiences });
+      signer = verified.signer;
+      issuedAt = verified.payload.iat;
+      const normalized = tryNormalize(verified.payload.name);
+      if (!normalized) throw new TokenError("token names an invalid ENS name");
+      tokenName = normalized;
+    } catch (err) {
+      const reason = err instanceof TokenError ? err.message : "bad token";
+      return reject(401, reason.includes("expired") ? "token expired" : "bad token", reason);
+    }
   }
 
   // 2. Unknown (name, signer) pairs cost chain reads; they share a failure budget per client.
@@ -640,14 +679,28 @@ export async function handleRelayRequest(request: Request, providerParam: string
 
   // From here on the caller owns a live name: every outcome is logged.
   const leaf: LevelView = decision.levels[decision.levels.length - 1];
+  // Codex shows its usage limit from these (codex-limits.ts): the cap that binds first, as of the last settled call.
+  const capUsage: CapUsage | null = provider === "codex" ? codexCapUsage(decision, meter, now) : null;
+  const limitHeaders = codexLimitHeaders(capUsage, Math.floor(now.getTime() / 1000));
   const refuse = (status: number, error: string, reason: string, headers?: Record<string, string>) => {
     log({ allowed: false, reason, name });
-    return errorResponse(status, error, reason, headers);
+    return errorResponse(status, error, reason, { ...limitHeaders, ...headers });
+  };
+  /** A spent budget: Codex gets its usage-limit answer, everyone else the relay's 403. */
+  const overBudget = (reason: string) => {
+    if (!(opts.codexClient && provider === "codex")) return refuse(403, "denied", reason);
+    log({ allowed: false, reason, name });
+    // A spent count limit (requests) isn't the dollar cap the headers describe: Codex shows the reason itself.
+    const countLimit = / limit \(|fewer than this call/.test(reason);
+    return usageLimitResponse(countLimit ? null : capUsage, reason, Math.floor(now.getTime() / 1000));
   };
   if (leaf.nbf && issuedAt < leaf.nbf) {
     return refuse(401, "token revoked", `tokens for ${leaf.name} issued before ${new Date(leaf.nbf * 1000).toISOString()} are refused (relay.nbf); sign a new one`);
   }
-  if (!decision.allowed) return refuse(403, decision.denial === "paused" ? "paused" : "denied", decision.reason ?? "denied");
+  if (!decision.allowed) {
+    if (decision.denial === "policy" && (decision.remaining === 0 || decision.remainingCount === 0)) return overBudget(decision.reason ?? "denied");
+    return refuse(403, decision.denial === "paused" ? "paused" : "denied", decision.reason ?? "denied");
+  }
   // The levels whose budgets this call spends: the chain's, plus any approved scope (overlay).
   const budgetLevels = spendLevels(decision);
 
@@ -698,6 +751,10 @@ export async function handleRelayRequest(request: Request, providerParam: string
     leave();
     return refuse(status, error, reason);
   };
+  const overBudgetAndLeave = (reason: string) => {
+    leave();
+    return overBudget(reason);
+  };
 
   let body: Uint8Array | null = null;
   if (method !== "GET" && method !== "HEAD") {
@@ -741,7 +798,8 @@ export async function handleRelayRequest(request: Request, providerParam: string
       maxOutputTokens: config.maxOutputTokens,
       codexPrices: config.codexPrices,
     });
-    if (!planned.ok) return refuseAndLeave(planned.status, planned.error, planned.reason);
+    // A 403 here means the budget left can't pay for the call.
+    if (!planned.ok) return planned.status === 403 ? overBudgetAndLeave(planned.reason) : refuseAndLeave(planned.status, planned.error, planned.reason);
     plan = planned.plan;
     body = plan.body;
     streaming = plan.streaming;
@@ -751,7 +809,7 @@ export async function handleRelayRequest(request: Request, providerParam: string
   let reservation: Reservation | null = null;
   if (usd > 0 || count > 0) {
     const held = reserve(budgetLevels, provider, usd, meter, now, count);
-    if (!held.ok) return refuseAndLeave(403, "denied", held.reason);
+    if (!held.ok) return overBudgetAndLeave(held.reason);
     reservation = held.reservation;
   }
 
@@ -845,6 +903,11 @@ export async function handleRelayRequest(request: Request, providerParam: string
 
   const status = upstream.status;
   const headers = clientResponseHeaders(upstream.headers, { secret: key, provider, base: base!, upstreamUrl: upstreamUrl! });
+  if (provider === "codex") {
+    // Only the relay's numbers: the company account's own usage headers (if any) never reach the agent.
+    for (const n of [...headers.keys()]) if (n.startsWith("x-codex-")) headers.delete(n);
+    for (const [n, v] of Object.entries(limitHeaders)) headers.set(n, v);
+  }
   const tracker =
     tokenPriced && spec.usage
       ? new UsageTracker(spec.usage, upstream.headers.get("content-type"), {

@@ -23,6 +23,7 @@
 //   agents/<name>.json   agent and subagent keys
 //   agents/.tx.lock      held while a command sends the user's transactions (one at a time)
 //   codex/               CODEX_HOME for subagent runs (they may run inside Codex's sandbox)
+//   codex-login.json     the Codex login `login` registered (its secret's hash, for logout to revoke it)
 //   bin/relay            installed mode only, when Codex can't find `relay` on PATH: a link to this file
 // Codex (relay codex) may write only agents/ and codex/, never user.json or config.json.
 //
@@ -31,7 +32,7 @@
 // --rpc / RELAY_RPC_URL / NEXT_PUBLIC_SEPOLIA_RPC_URL / config.json, default Tenderly's public Sepolia gateway.
 // In repo mode the repo's .env.local fills in RELAY_PUBLIC_URL and the RPC variables (and nothing else).
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -45,6 +46,14 @@ import { tryNormalize } from "../lib/ens/names";
 import { RegistryRoles } from "../lib/ens/roles";
 import { type Bundle, PERIODS, type Period, type ProviderId, RECORD_KEYS, bundleRecordKeys, parseBundle } from "../lib/relay/bundle";
 import { countUnit } from "../lib/relay/catalog";
+import {
+  CODEX_SESSIONS_PATH,
+  MAX_CODEX_LOGIN_SEC,
+  codexLoginMessage,
+  codexLogoutMessage,
+  loginSecretHash,
+  newLoginSecret,
+} from "../lib/relay/codex-login";
 import { DEFAULT_MAX_TOKEN_TTL_SEC, createToken } from "../lib/relay/token";
 import type { FundResponse, LevelView, OwnedResponse, PolicyResponse, StatusResponse } from "../lib/relay/types";
 import {
@@ -84,7 +93,19 @@ import {
   readGrant,
   taskReport,
 } from "./lib/chain-cli";
-import { CODEX_PROVIDER_ID, DEFAULT_CODEX_MODEL, authScript, conflictingTables, withRelayCodexConfig, withoutRelayCodexConfig } from "./lib/codex-config";
+import {
+  AUTH_BACKUP_SUFFIX,
+  CODEX_PROVIDER_ID,
+  DEFAULT_CODEX_MODEL,
+  authScript,
+  checkAuthAside,
+  conflictingTables,
+  moveAuthAside,
+  relayModelCatalog,
+  restoreAuth,
+  withRelayCodexConfig,
+  withoutRelayCodexConfig,
+} from "./lib/codex-config";
 import { PAT_DEFAULT_HOURS, TOKEN_TTL_MARGIN_SEC, findPatSigner, patEnvLines, patExpiry, patName } from "./lib/pat";
 import {
   type Chain,
@@ -230,6 +251,7 @@ const files = {
   session: path.join(HOME, "session.json"),
   agents: path.join(HOME, "agents"),
   codexHome: path.join(HOME, "codex"),
+  codexLogin: path.join(HOME, "codex-login.json"),
   bin: path.join(HOME, "bin"),
 };
 
@@ -237,6 +259,8 @@ type UserKey = { address: Address; privateKey: Hex; createdAt: string };
 type AgentKey = { name: string; address: Address; privateKey: Hex; createdAt: string; expiry?: number };
 type Config = { relayUrl?: string; rpcUrl?: string };
 type Session = { user: string; agent: string; agentAddress: Address; expiry: number; relayUrl: string; createdAt: string };
+/** The Codex login registered with the relay (the secret itself is only in Codex's config.toml). */
+type CodexLogin = { agent: string; member: string; secretHash: Hex; exp: number; relayUrl: string };
 
 function readJson<T>(file: string): T | null {
   try {
@@ -348,6 +372,7 @@ type Opts = {
   help?: boolean;
   version?: boolean;
   "if-unset"?: boolean;
+  "auth-command"?: boolean;
   chain?: string;
   "chain-to"?: string;
   "chain-max"?: string;
@@ -930,9 +955,11 @@ async function login(opts: Opts): Promise<Session> {
 
 async function cmdLogin(opts: Opts) {
   const session = await login(opts);
-  const plain = setupCodex(session, relayUrl(opts), opts.model || process.env.RELAY_CODEX_MODEL?.trim() || DEFAULT_CODEX_MODEL);
+  const model = opts.model || process.env.RELAY_CODEX_MODEL?.trim() || DEFAULT_CODEX_MODEL;
+  const plain = await setupCodex(session, relayUrl(opts), model, !!opts["auth-command"]);
   if (opts.json) out(JSON.stringify(session));
-  else info(plain ? `Next: ${plain} (or ${CMD} codex)` : `Next: ${CMD} codex`);
+  else if (plain === "login") info(`Run codex, choose "Provide your own API key" and type ${session.user}`);
+  else info(plain ? `Next: codex (or ${CMD} codex)` : `Next: ${CMD} codex`);
 }
 
 // --- plain `codex` -----------------------------------------------------------------------------------
@@ -940,6 +967,29 @@ async function cmdLogin(opts: Opts) {
 const codexHomeDir = () => path.resolve(process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex"));
 const codexAuthFile = () => path.join(HOME, "codex-auth");
 const codexSkillFile = () => path.join(codexHomeDir(), "skills", "ens-subagents", "SKILL.md");
+/** The relay model's metadata for Codex (model_catalog_json), next to its config so it outlives RELAY_HOME. */
+const codexCatalogFile = () => path.join(codexHomeDir(), "relay-models.json");
+
+/** Writes codexCatalogFile from Codex's own bundled catalog; null when Codex can't give one (it then only warns). */
+function writeCodexCatalog(model: string): string | null {
+  const r = spawnSync("codex", ["debug", "models", "--bundled"], { encoding: "utf8", timeout: 20_000, maxBuffer: 32 << 20, stdio: ["ignore", "pipe", "ignore"] });
+  const text = r.status === 0 ? relayModelCatalog(r.stdout, model) : null;
+  if (!text) return null;
+  replaceFile(codexCatalogFile(), text, 0o644);
+  return codexCatalogFile();
+}
+
+/**
+ * Codex's background app server keeps the config it started with (plain `codex` then says "Disconnected
+ * from this task"): restarts it after a config change, only when it is running.
+ */
+function restartCodexDaemon() {
+  const daemon = (cmd: string) => spawnSync("codex", ["app-server", "daemon", cmd], { encoding: "utf8", timeout: 30_000, stdio: ["ignore", "pipe", "pipe"] });
+  const status = daemon("version");
+  if (status.status !== 0 || !/"status"\s*:\s*"running"/.test(status.stdout ?? "")) return;
+  if (daemon("restart").status === 0) done("restarted Codex's background app server so it uses the new config");
+  else info(`  ! couldn't restart Codex's background app server: if codex says "Disconnected from this task", run codex app-server daemon restart`);
+}
 
 /** Writes `text` to `file` through a temp file in the same folder (never through a symlink), keeping its mode. */
 function replaceFile(file: string, text: string, mode: number) {
@@ -951,13 +1001,67 @@ function replaceFile(file: string, text: string, mode: number) {
 }
 
 /**
- * Makes plain `codex` use the relay as this agent: a "relay" provider (selected by the top-level
- * model_provider/model keys, the user's own set aside) in Codex's config.toml whose auth command (RELAY_HOME/codex-auth → `relay codex-token`) signs a fresh token,
- * plus the ens-subagents skill. Codex's own sign-in (auth.json) is not touched. Returns the command to
- * run, or null when Codex can't be set up (it says why; `relay codex` still works).
+ * Registers a Codex login with the relay (lib/relay/codex-login.ts): a fresh secret for Codex's base_url,
+ * bound by the agent key to the agent, the user's name, this relay and an expiry (the agent's, at most
+ * 24 h). Null when the relay is too old to have Codex logins.
  */
-function setupCodex(session: Session, base: string, model: string): string | null {
-  const configFile = path.join(codexHomeDir(), "config.toml");
+async function registerCodexLogin(session: Session, base: string): Promise<{ secret: string; login: CodexLogin } | null> {
+  const loaded = loadAgentKey(session.agent);
+  if (!loaded) throw new UserError(`No key for ${session.agent} in ${HOME}. Run ${CMD} login --force.`);
+  const status = await getStatus(base);
+  const iat = nowSec();
+  const longest = Math.min(MAX_CODEX_LOGIN_SEC, status?.maxTokenTtlSec ?? MAX_CODEX_LOGIN_SEC) - TOKEN_TTL_MARGIN_SEC;
+  const exp = Math.min(session.expiry, iat + longest);
+  if (exp <= iat + 60) throw new UserError(`The agent session ${session.agent} ends too soon for a Codex login. Run ${CMD} login --force.`);
+  const secret = newLoginSecret();
+  const claim = { agent: session.agent, member: session.user, relay: new URL(base).origin, secretHash: loginSecretHash(secret), iat, exp };
+  const signature = await loaded.account.signMessage({ message: codexLoginMessage(claim) });
+  const r = await http(`${base}${CODEX_SESSIONS_PATH}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...claim, signature }),
+  });
+  if (r.status === 404 && !relayError(r.json)) return null;
+  throwIfRevoked(r, session.agent);
+  if (!r.ok) throw new UserError(`The relay refused the Codex login (${r.status}: ${describeRefusal(r)}).`);
+  return { secret, login: { agent: session.agent, member: session.user, secretHash: claim.secretHash, exp, relayUrl: base } };
+}
+
+/** Revokes the Codex login in codex-login.json (best effort: it ends on its own at its expiry) and forgets it. */
+async function revokeCodexLogin() {
+  const saved = readJson<CodexLogin>(files.codexLogin);
+  if (!saved?.secretHash) {
+    fs.rmSync(files.codexLogin, { force: true });
+    return;
+  }
+  const loaded = loadAgentKey(saved.agent);
+  let revoked = false;
+  if (loaded && saved.exp > nowSec()) {
+    try {
+      const claim = { relay: new URL(saved.relayUrl).origin, secretHash: saved.secretHash, iat: nowSec() };
+      const signature = await loaded.account.signMessage({ message: codexLogoutMessage(claim) });
+      const r = await http(`${saved.relayUrl}${CODEX_SESSIONS_PATH}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...claim, signature }) }, 15_000);
+      revoked = r.ok;
+      if (!r.ok) info(`  ! the relay didn't revoke the Codex login (${r.status}: ${describeRefusal(r)}); it ends at ${fmtClock(saved.exp)}`);
+    } catch (err) {
+      info(`  ! couldn't revoke the Codex login (${err instanceof Error ? err.message : String(err)}); it ends at ${fmtClock(saved.exp)}`);
+    }
+  }
+  fs.rmSync(files.codexLogin, { force: true });
+  if (revoked) done(`revoked the Codex login for ${saved.member}`);
+}
+
+/**
+ * Makes plain `codex` use the relay as this agent, plus the ens-subagents skill. By default through a
+ * Codex login: the config's base_url holds the login's secret and Codex shows its own login screen, where
+ * the user types their ENS name; the user's own auth.json waits in auth.json.before-relay. With
+ * `authCommand` (or a relay without Codex logins), through the auth command (RELAY_HOME/codex-auth →
+ * `relay codex-token`), and auth.json is not touched. Returns "login", "codex" (the auth command), or
+ * null when Codex can't be set up (it says why; `relay codex` still works).
+ */
+async function setupCodex(session: Session, base: string, model: string, authCommand: boolean): Promise<"login" | "codex" | null> {
+  const home = codexHomeDir();
+  const configFile = path.join(home, "config.toml");
   const before = readText(configFile) ?? "";
   const clash = conflictingTables(before);
   if (clash.length) {
@@ -965,16 +1069,50 @@ function setupCodex(session: Session, base: string, model: string): string | nul
     return null;
   }
   ensureHome();
-  const viaNode = MODE === "installed";
-  const cli = viaNode ? SELF : path.join(REPO_ROOT, "relay");
-  replaceFile(codexAuthFile(), authScript({ node: process.execPath, cli, viaNode, relayHome: HOME }), 0o700);
-  const { text } = withRelayCodexConfig(before, { agent: session.agent, relayUrl: base, authCommand: codexAuthFile(), model });
-  if (before && !fs.existsSync(`${configFile}.before-relay`)) fs.copyFileSync(configFile, `${configFile}.before-relay`);
+  const previous = readJson<CodexLogin>(files.codexLogin);
+  // Names typed at Codex's login screen by this or an earlier relay login: that auth.json is ours to delete.
+  const known = codexLoginNames(session, previous);
+  let registered: Awaited<ReturnType<typeof registerCodexLogin>> = null;
+  if (!authCommand) {
+    const aside = checkAuthAside(home, known);
+    if (!aside.ok) {
+      info(`  ! didn't set up plain codex: ${aside.reason}. Or use ${CMD} codex.`);
+      return null;
+    }
+    registered = await registerCodexLogin(session, base);
+    if (!registered) info(`  ! the relay at ${base} has no Codex logins yet, so plain codex signs in with an auth command instead`);
+  }
+  // The login this replaces (if any) stops working now.
+  if (previous && previous.secretHash !== registered?.login.secretHash) await revokeCodexLogin();
+
+  // Written before the config that names it: Codex won't start with a catalog file missing.
+  const modelCatalog = writeCodexCatalog(model);
+  let text: string;
+  if (registered) {
+    const moved = moveAuthAside(home, known);
+    if (moved.ok && moved.action === "moved") done(`moved your Codex sign-in aside (${path.join(home, `auth.json${AUTH_BACKUP_SUFFIX}`)}); ${CMD} logout puts it back`);
+    ({ text } = withRelayCodexConfig(before, { agent: session.agent, relayUrl: base, loginSecret: registered.secret, model, modelCatalog }));
+    fs.rmSync(codexAuthFile(), { force: true });
+    // codex exec sends CODEX_API_KEY instead of the sign-in: the relay refuses it, but it would still reach the relay.
+    if (process.env.CODEX_API_KEY?.trim()) info("  ! CODEX_API_KEY is set: codex exec would send it to the relay instead of your ENS name. Unset it.");
+  } else {
+    // The auth command doesn't use Codex's sign-in: an earlier Codex login's name goes and the user's own comes back.
+    putBackAuth(home, known);
+    const viaNode = MODE === "installed";
+    const cli = viaNode ? SELF : path.join(REPO_ROOT, "relay");
+    replaceFile(codexAuthFile(), authScript({ node: process.execPath, cli, viaNode, relayHome: HOME }), 0o700);
+    ({ text } = withRelayCodexConfig(before, { agent: session.agent, relayUrl: base, authCommand: codexAuthFile(), model, modelCatalog }));
+  }
   let mode = 0o600;
   try {
     mode = fs.statSync(configFile).mode & 0o777;
   } catch {}
-  replaceFile(configFile, text, mode);
+  // A copy of the user's own file, never with anything of ours in it (an earlier login's secret).
+  if (before && !fs.existsSync(`${configFile}.before-relay`)) replaceFile(`${configFile}.before-relay`, withoutRelayCodexConfig(before), mode);
+  // A Codex login's secret is in the file: readable by the user only.
+  replaceFile(configFile, text, registered ? mode & 0o700 : mode);
+  if (registered) writeSecret(files.codexLogin, registered.login);
+  if (!modelCatalog) fs.rmSync(codexCatalogFile(), { force: true });
 
   // The subagent skill, where Codex looks in any folder (only replacing a copy we wrote).
   const skillFile = codexSkillFile();
@@ -984,21 +1122,46 @@ function setupCodex(session: Session, base: string, model: string): string | nul
     if (now !== skill) replaceFile(skillFile, skill, 0o644);
   } else info(`  ! left ${skillFile} alone: ${CMD} didn't write it`);
 
+  if (text !== before) restartCodexDaemon();
+  if (registered) {
+    done(`set up Codex: provider "${CODEX_PROVIDER_ID}" (${model}) runs as ${session.agent}; sign in with ${session.user} until ${fmtClock(registered.login.exp)} · ${configFile}`);
+    return "login";
+  }
   done(`set up Codex: provider "${CODEX_PROVIDER_ID}" (${model}) signs in as ${session.agent} · ${configFile}`);
   return "codex";
 }
 
-/** Undoes setupCodex: our block and default profile line, the auth script, and our copy of the skill. */
-function teardownCodex() {
-  const configFile = path.join(codexHomeDir(), "config.toml");
+/** The names a Codex login's auth.json may hold: this session's and an earlier login's (a rehearsal's). */
+function codexLoginNames(session: Pick<Session, "user" | "agent"> | null, login: CodexLogin | null): string[] {
+  return [session?.user, session?.agent, login?.member, login?.agent].filter((n): n is string => !!n);
+}
+
+/** restoreAuth, saying what it did. */
+function putBackAuth(home: string, known: string[]) {
+  const auth = path.join(home, "auth.json");
+  const restored = restoreAuth(home, known);
+  if (restored === "restored") info(`Put your Codex sign-in back (${auth}).`);
+  else if (restored === "kept") info(`  ! kept ${auth} (you signed in to Codex again); your earlier sign-in is still in ${auth}${AUTH_BACKUP_SUFFIX}`);
+}
+
+/** Undoes setupCodex: the Codex login (revoked), our config lines, the auth script, auth.json and our copy of the skill. */
+async function teardownCodex() {
+  const known = codexLoginNames(readJson<Session>(files.session), readJson<CodexLogin>(files.codexLogin));
+  await revokeCodexLogin();
+  const home = codexHomeDir();
+  const configFile = path.join(home, "config.toml");
   const before = readText(configFile);
   if (before !== null) {
     const after = withoutRelayCodexConfig(before);
     if (after !== before) {
       replaceFile(configFile, after, fs.statSync(configFile).mode & 0o777);
       info(`Removed the relay provider from ${configFile}; plain codex is back to its own sign-in.`);
+      restartCodexDaemon();
     }
   }
+  // After the config no longer names it.
+  fs.rmSync(codexCatalogFile(), { force: true });
+  putBackAuth(home, known);
   fs.rmSync(codexAuthFile(), { force: true });
   const skill = readText(codexSkillFile());
   if (skill !== null && isGeneratedFile(skill)) fs.rmSync(path.dirname(codexSkillFile()), { recursive: true, force: true });
@@ -1869,8 +2032,8 @@ async function cmdPat(opts: Opts, rest: string[]) {
 
 // --- logout ------------------------------------------------------------------------------------------
 
-function cmdLogout(opts: Opts) {
-  teardownCodex();
+async function cmdLogout(opts: Opts) {
+  await teardownCodex();
   if (opts.all) {
     fs.rmSync(HOME, { recursive: true, force: true });
     info(`Deleted ${HOME} (your key too). Run ${CMD} init to start over.`);
@@ -1960,7 +2123,8 @@ function help(): string {
     ["init [--relay URL]", "Create your key and print your address (send it to your admin)"],
     ["whoami [--json]", "Your address, names, balance, agent and subagents with spend"],
     ["login [--name N]", "Set up your agent codex.<your name> (Codex $0.30, 1 image, 8 h) and plain `codex`"],
-    ["", "      [--codex USD] [--images N] [--hours H] [--force] [chain flags]"],
+    ["", "      [--codex USD] [--images N] [--hours H] [--force] [--auth-command] [chain flags]"],
+    ["", "      (then run codex, choose \"Provide your own API key\" and type your ENS name)"],
     ["codex [-- <codex args>]", "Log in if needed, then start Codex through the relay"],
     ["", `(${CMD} codex exec "…" runs codex exec the same way)`],
     ["subagent create <label> [--codex USD] [--images N] [--minutes M | --days D] [--period P] [chain flags]"],
@@ -2049,6 +2213,7 @@ async function main() {
         help: { type: "boolean", short: "h" },
         version: { type: "boolean" },
         "if-unset": { type: "boolean" },
+        "auth-command": { type: "boolean" },
         chain: { type: "string" },
         "chain-to": { type: "string" },
         "chain-max": { type: "string" },

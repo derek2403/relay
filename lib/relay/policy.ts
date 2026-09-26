@@ -78,6 +78,9 @@ const round9 = (usd: number) => Math.round(usd * 1e9) / 1e9;
 const levelSpendKey = (level: SpendLevel, provider: string, now: Date) =>
   spendKey(namehash(level.name), level.resource, provider, level.bucket ?? periodKey(level.bundle?.period ?? "month", now));
 
+/** Settled dollars `level` has spent on `provider` in its current period (or its approved scope's bucket). */
+export const spentOn = (level: SpendLevel, provider: ProviderId, meter: Meter, now: Date) => meter.spent(levelSpendKey(level, provider, now));
+
 const overlayLabel = (o: Pick<Overlay, "name" | "id">) => `${o.name} (approved scope ${o.id})`;
 
 /**

@@ -5,6 +5,8 @@ in the repo.
 
 ## Demo 1: Codex with an ENS identity
 
+Before the demo (off stage):
+
 1. Reset:
    ```sh
    relay logout
@@ -21,26 +23,39 @@ in the repo.
    ```sh
    relay login --chain-max 5 --chain-limit 20
    ```
-5. Run Codex:
+   → `Run codex, choose "Provide your own API key" and type derek.cloudops.dev.sodalabs.eth`. Your own Codex
+   sign-in waits in `~/.codex/auth.json.before-relay`; `relay logout` puts it back.
+
+On stage:
+
+1. Log in to Codex with the ENS name:
    ```sh
    mkdir -p ~/relay-demo && cd ~/relay-demo && codex
    ```
+   Codex's login screen (ChatGPT sign-in is greyed out while the relay is set up) → **2. Provide your own API
+   key** (already selected) → Enter → type `derek.cloudops.dev.sodalabs.eth` → Enter → **Trust and continue**.
    > Build a one-page site in index.html about ENS names as identities for AI agents.
 
    Portal → select `derek`: spend rises on the agent and every level above it.
-6. Subagents:
+2. Usage limit: from 75% of the agent's $0.30 cap, Codex shows it in the chat
+   (`⚠ Heads up, you have less than 25% of your usage limit left`) and right above the prompt box
+   (`⚠ usage limit: 25% left · resets at <the agent's expiry>`). If it isn't there yet, it appears during
+   step 3. Not in `/status` (always "data not available yet" with an API key).
+3. Subagents:
    > Use two subagents: a research subagent to find three facts about ENSv2, and an image subagent to make a
    > header image. Then add both to the page.
 
    Approve the two `relay subagent create` commands Codex asks to run. Both appear in the Live view.
-7. Keep prompting ("add a FAQ section, dark mode and tests") until Codex says
-   `has used its codex cap ($0.3)`.
-8. Revoke: portal → select `derek` → **Remove derek.cloudops.dev.sodalabs.eth** → **Yes, remove it** → confirm in
-   the wallet. Codex is cut off with `access revoked`. (If you go on to Demos 2, 4 and 5, do this at the very end.)
+4. Keep prompting ("add a FAQ section, dark mode and tests") until Codex says
+   `You've hit your usage limit. codex.derek.cloudops.dev.sodalabs.eth has used its $0.30 Codex cap. Ask
+   derek.cloudops.dev.sodalabs.eth to raise it, …`.
+5. Revoke: portal → select `derek` → **Remove derek.cloudops.dev.sodalabs.eth** → **Yes, remove it** → confirm in
+   the wallet. Codex's next call is refused with `access revoked` (after a few reconnects). (If you go on to
+   Demos 2, 4 and 5, do this at the very end.)
 
 ## Demo 2: One PAT for LLM + weather + images
 
-Needs Derek (Demo 1 steps 1–3).
+Needs Derek (Demo 1, before the demo, steps 1–3).
 
 1. Get a PAT into the app's `.env`:
    ```sh
@@ -55,7 +70,7 @@ Needs Derek (Demo 1 steps 1–3).
 3. Click **Ask**: the LLM calls the weather tool for Tokyo, then generates an image.
 4. Portal → select `derek`: the `codex`, `weather` and `openai-images` calls are all under Derek.
 5. Click **Ask** until **generate_image** turns red: `openai-images limit (3 images)`.
-6. Revoke Derek (Demo 1 step 8), click **Ask**: `403 access revoked`.
+6. Revoke Derek (Demo 1, on stage, step 5), click **Ask**: `403 access revoked`.
 
 ## Demo 3: Proof you can check
 
@@ -71,8 +86,8 @@ Needs Derek (Demo 1 steps 1–3).
 
 ## Demo 4: A blockchain agent through MultiBaas
 
-Needs Derek logged in (Demo 1 steps 1–4). The reset in Demo 1 step 1 refreshes the treasury history when it
-is over 48 h old; add `--reseed` to force it.
+Needs Derek logged in (Demo 1, before the demo). The reset in Demo 1 (before the demo, step 1) refreshes the
+treasury history when it is over 48 h old; add `--reseed` to force it.
 
 1. Monitor:
    ```sh
@@ -123,11 +138,11 @@ is over 48 h old; add `--reseed` to force it.
    relay chain task "Review our treasury's recent transfers." --as watch
    ```
    → `[cap:prepare]`, then the review works.
-9. Revoke Derek (Demo 1 step 8), then any `relay chain task …` → `access revoked`.
+9. Revoke Derek (Demo 1, on stage, step 5), then any `relay chain task …` → `access revoked`.
 
 ## Demo 5: Human approval with World ID
 
-Needs Derek logged in (Demo 1 steps 1–4). Once: portal → **Approvals** → **Your approver identity** →
+Needs Derek logged in (Demo 1, before the demo). Once: portal → **Approvals** → **Your approver identity** →
 **Link World ID** → sign → scan the QR with World App → Selfie Check.
 
 1. A payout subagent (20 STD a month, supplier only):
