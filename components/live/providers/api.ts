@@ -13,6 +13,7 @@ export type {
   OwnerSession,
   SessionResponse,
 } from "@/lib/relay/credentials-types";
+import type { RemoteAttestationResponse } from "@/lib/relay/attestation-core";
 import type { CredentialKeyView, CredentialsResponse, CustomServiceView, NonceResponse, SessionResponse } from "@/lib/relay/credentials-types";
 
 export type AttestationStatement = {
@@ -30,7 +31,8 @@ export type AttestationStatement = {
 /** Hex without 0x; reportData is the full 64 bytes. */
 export type Measurements = { mrtd: string; rtmr0: string; rtmr1: string; rtmr2: string; rtmr3: string; reportData: string };
 
-export type AttestationResponse = {
+/** From dstack next to the relay (or its simulator): the relay's own statement in REPORTDATA. */
+export type DstackAttestationResponse = {
   statement: AttestationStatement;
   statementHash: string;
   reportData: string;
@@ -41,6 +43,8 @@ export type AttestationResponse = {
   verifyUrl?: string | null;
   measurements?: Measurements | null;
 };
+
+export type AttestationResponse = DstackAttestationResponse | RemoteAttestationResponse;
 
 const BASE = "/api/relay/credentials";
 const q = encodeURIComponent;

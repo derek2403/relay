@@ -69,3 +69,4 @@
   .lp-wrap{max-width:60%}
   .dialog-footer{flex-wrap:wrap}
 }
+.lp-cmd{white-space:pre-wrap;word-break:break-all;font:11px/1.6 'Space Mono',monospace;margin:8px 0 0;background:#eee8dc}

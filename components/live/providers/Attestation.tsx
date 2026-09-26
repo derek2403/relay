@@ -1,13 +1,18 @@
 "use client";
 
-// Relay attestation: the relay signs a statement of what it serves (root, services, build) into a
-// TDX quote's report data. This page re-hashes the statement and checks it against the quote.
+// TEE attestation, fresh on every open: this page makes a nonce and asks the relay for a quote.
+// - From the attestation service on Phala Cloud (RELAY_ATTESTATION_URL): the nonce is REPORTDATA.
+//   This page checks the quote bytes itself (TDX, nonce, compose hash in MRCONFIGID) and shows
+//   Phala's public verifier's verdict on Intel's signature.
+// - From dstack next to the relay: the relay binds a statement of what it serves; this page
+//   re-hashes the statement and checks it against the quote.
 
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Icon } from "@/components/ui/Icon";
-import { attestationApi, apiErrorText, reasonOf, statusOf, type AttestationResponse } from "./api";
+import { type RemoteAttestationResponse, remoteChecks } from "@/lib/relay/attestation-core";
+import { attestationApi, apiErrorText, reasonOf, statusOf, type DstackAttestationResponse } from "./api";
 import { PHALA_EXPLORER, bytesToHex, checkBinding, formatUpdated, markFor, parseQuote, sourceLabel, strip0x, type BindingCheck } from "./logic";
 
 export function AttestationCard() {
@@ -19,12 +24,9 @@ export function AttestationCard() {
         <span className="provider-logo">
           <Icon name="shield" />
         </span>
-        Relay attestation
+        TEE attestation
       </h2>
-      <p>
-        The relay puts a hash of what it serves (company root, APIs with keys, build) into a TEE quote. Check that the quote covers
-        this exact statement.
-      </p>
+      <p>A fresh Intel TDX quote with a nonce made in your browser. This page checks the quote itself and shows what it covers.</p>
       <button type="button" className="primary" onClick={() => setOpen(true)}>
         View attestation
       </button>
@@ -35,15 +37,16 @@ export function AttestationCard() {
   );
 }
 
-const randomNonce = () => bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+const randomNonce = () => bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(32)));
 
 function AttestationBody({ onClose }: { onClose: () => void }) {
-  const [nonce, setNonce] = useState<string | undefined>(undefined);
+  // A new nonce on every open and every "Fresh quote": each quote is made for this request.
+  const [nonce, setNonce] = useState<string>(randomNonce);
   const query = useQuery({
-    queryKey: ["relay-attestation", nonce ?? null],
+    queryKey: ["relay-attestation", nonce],
     queryFn: () => attestationApi.get(nonce),
     retry: false,
-    staleTime: 30_000,
+    staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
 
@@ -52,16 +55,18 @@ function AttestationBody({ onClose }: { onClose: () => void }) {
       <div className="dialog-heading">
         <div>
           <div className="eyebrow">Attestation</div>
-          <h2>Relay attestation</h2>
+          <h2>TEE attestation</h2>
         </div>
         <button type="button" className="icon-button close-dialog" aria-label="Close" onClick={onClose}>
           ×
         </button>
       </div>
       {query.isPending ? (
-        <p className="dialog-description">Asking the relay for a quote…</p>
+        <p className="dialog-description">Asking for a fresh quote…</p>
       ) : query.error ? (
         <AttestationError error={query.error} />
+      ) : query.data.source === "remote" ? (
+        <RemoteDetails data={query.data} nonce={nonce} />
       ) : (
         <AttestationDetails data={query.data} nonce={nonce} />
       )}
@@ -72,7 +77,7 @@ function AttestationBody({ onClose }: { onClose: () => void }) {
           </a>
         )}
         <button type="button" className="secondary" disabled={query.isFetching} onClick={() => setNonce(randomNonce())}>
-          {query.isFetching && nonce ? "Fetching…" : "Fresh quote"}
+          {query.isFetching ? "Fetching…" : "Fresh quote"}
         </button>
         <button type="button" className="primary" onClick={onClose}>
           Close
@@ -91,6 +96,13 @@ function AttestationError({ error }: { error: Error }) {
       </>
     );
   }
+  if (statusOf(error) === 502) {
+    return (
+      <p className="form-error" role="alert">
+        {`Couldn't get a quote from the attestation service: ${reasonOf(error) ?? apiErrorText(error)}`}
+      </p>
+    );
+  }
   return (
     <p className="form-error" role="alert">
       {statusOf(error) === 404 ? "This relay doesn't serve an attestation." : apiErrorText(error)}
@@ -98,7 +110,117 @@ function AttestationError({ error }: { error: Error }) {
   );
 }
 
-function runCheck(data: AttestationResponse): { check: BindingCheck | null; checkError: string } {
+function Check({ ok, children, detail }: { ok: boolean | null; children: React.ReactNode; detail?: React.ReactNode }) {
+  return (
+    <div className={`lp-check ${ok === true ? "ok" : ok === false ? "bad" : ""}`} role="status">
+      {ok === true ? "✓ " : ok === false ? "✗ " : "– "}
+      {children}
+      {detail && <small>{detail}</small>}
+    </div>
+  );
+}
+
+const when = (iso: string | null | undefined) => (iso && !Number.isNaN(Date.parse(iso)) ? formatUpdated(Date.parse(iso)) : "");
+
+function RemoteDetails({ data, nonce }: { data: RemoteAttestationResponse; nonce: string }) {
+  // Everything below "checked here" is read from the quote bytes in this browser, not taken from the relay.
+  const checks = useMemo(() => remoteChecks(data.quote, nonce, data.service.composeHash), [data, nonce]);
+  const parsed = parseQuote(data.quote);
+  const m = checks.tdx ? data.measurements : null;
+  const [copied, setCopied] = useState(false);
+  const quoteBytes = Math.floor(strip0x(data.quote).length / 2);
+  const intel = data.intel;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(data.quote);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <>
+      <p className="dialog-description">
+        A fresh quote from the attestation service on Phala Cloud, running in an Intel TDX confidential VM. It covers that service&apos;s
+        code, pinned by its compose hash. The relay API runs on its own server.
+      </p>
+
+      <Check ok={checks.tdx} detail={parsed ? `Quote v${parsed.version}, read in this browser.` : undefined}>
+        Intel TDX quote
+      </Check>
+      <Check ok={checks.nonceInQuote} detail={<>Nonce <code>{nonce}</code></>}>
+        {checks.nonceInQuote ? "Made for this request: your nonce is in the quote" : "Your nonce is not in the quote"}
+      </Check>
+      <Check
+        ok={checks.composeHashInQuote}
+        detail={data.service.composeHash ? <>Compose hash <code>{data.service.composeHash}</code> in MRCONFIGID</> : "The service reported no compose hash."}
+      >
+        {checks.composeHashInQuote === null ? "Compose hash not checked" : checks.composeHashInQuote ? "The quote pins the service's compose file" : "The quote's compose hash differs from the service's"}
+      </Check>
+      <Check
+        ok={intel ? intel.verified : null}
+        detail={
+          intel?.verified ? (
+            <>
+              Checked by Phala&apos;s public verifier{intel.verifiedAt ? ` at ${when(intel.verifiedAt)}` : ""}.{" "}
+              {intel.reportUrl && (
+                <a href={intel.reportUrl} target="_blank" rel="noreferrer">
+                  Open the report ↗
+                </a>
+              )}
+            </>
+          ) : (
+            intel?.error ?? "Paste the quote into Phala's explorer to check it."
+          )
+        }
+      >
+        {intel?.verified ? "Intel signature and certificate chain verified" : intel ? "Intel signature not verified" : "Intel signature not checked"}
+      </Check>
+
+      <h3 className="lp-subhead">Attested service</h3>
+      <div className="lp-section">
+        <Row label="URL" value={data.service.url} mono />
+        {data.service.image && <Row label="Image" value={data.service.image} mono />}
+        {data.service.appId && <Row label="Phala app" value={data.service.appId} mono />}
+        {data.service.instanceId && <Row label="Instance" value={data.service.instanceId} mono />}
+        {data.service.osImageHash && <Row label="OS image" value={data.service.osImageHash} mono />}
+        <Row label="Fetched" value={when(data.fetchedAt)} />
+      </div>
+
+      {m && (
+        <>
+          <h3 className="lp-subhead">Measurements</h3>
+          <div className="lp-section">
+            <Row label="MRTD" value={m.mrtd} mono />
+            <Row label="MRCONFIGID" value={m.mrConfigId} mono />
+            <Row label="RTMR0" value={m.rtmr0} mono />
+            <Row label="RTMR1" value={m.rtmr1} mono />
+            <Row label="RTMR2" value={m.rtmr2} mono />
+            <Row label="RTMR3" value={m.rtmr3} mono />
+            <Row label="Report data" value={m.reportData} mono />
+          </div>
+        </>
+      )}
+
+      <details className="lp-quote">
+        <summary>
+          Quote <span>{quoteBytes} bytes</span>
+        </summary>
+        <pre>{strip0x(data.quote)}</pre>
+        <button type="button" className="secondary" onClick={() => void copy()}>
+          {copied ? "Copied" : "Copy quote"}
+        </button>
+      </details>
+
+      <h3 className="lp-subhead">Check it yourself</h3>
+      <pre className="lp-quote lp-cmd">{`curl -s "${data.service.url}/attestation?nonce=$(openssl rand -hex 32)"`}</pre>
+    </>
+  );
+}
+
+function runCheck(data: DstackAttestationResponse): { check: BindingCheck | null; checkError: string } {
   try {
     return { check: checkBinding(data), checkError: "" };
   } catch (failure) {
@@ -106,7 +228,7 @@ function runCheck(data: AttestationResponse): { check: BindingCheck | null; chec
   }
 }
 
-function AttestationDetails({ data, nonce }: { data: AttestationResponse; nonce: string | undefined }) {
+function AttestationDetails({ data, nonce }: { data: DstackAttestationResponse; nonce: string | undefined }) {
   const { check, checkError } = useMemo(() => runCheck(data), [data]);
   const [copied, setCopied] = useState(false);
   const parsed = parseQuote(data.quote);
