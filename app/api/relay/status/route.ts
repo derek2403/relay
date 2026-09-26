@@ -1,10 +1,14 @@
 // GET /api/relay/status : how this relay is set up. Never exposes key values,
-// only whether each catalog provider is configured (key present).
+// only whether each catalog provider is configured (key present). Also lists
+// the names paused for review (`paused`) and whether World ID is set up (`world`).
 
+import { approvalsDeps } from "@/lib/relay/approvals";
+import { pausedList } from "@/lib/relay/approvals/api";
 import { RECORD_PREFIX } from "@/lib/relay/bundle";
 import { CATALOG, type Category, type ProviderId, countUnit } from "@/lib/relay/catalog";
 import { relayDeps, rootWarning } from "@/lib/relay/policy";
 import type { StatusResponse } from "@/lib/relay/types";
+import { worldStatus } from "@/lib/relay/world/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +58,8 @@ export async function GET() {
     rejectedRequests: meter.rejectedCount,
     liveCheckSec: config.liveCheckMs === null ? null : config.liveCheckMs / 1000,
     funder: { enabled: config.funder.enabled, address: config.funder.address, amountEth: config.funder.amountEth, error: config.funder.error },
+    paused: pausedList(approvalsDeps().store),
+    world: worldStatus(process.env),
   };
   return Response.json(status, { headers: { "cache-control": "no-store" } });
 }
