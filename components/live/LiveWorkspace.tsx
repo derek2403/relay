@@ -31,6 +31,7 @@ import {
   liveMetrics,
   liveProviders,
   mergeActivity,
+  orgNameFor,
   roleFor,
   toLiveNodes,
 } from "@/lib/live/view";
@@ -255,9 +256,10 @@ export function LiveWorkspace() {
     spendClosed: viewClosed,
   });
   const activity = mergeActivity(log.data, events);
+  const displayName = ensName ?? orgNameFor(address, nodes, owned.data?.names);
   const profile: Profile = {
-    initials: initialsFor(ensName, address),
-    name: ensName ?? (address ? shortAddress(address) : "No wallet"),
+    initials: initialsFor(displayName, address),
+    name: displayName ?? (address ? shortAddress(address) : "No wallet"),
     role: roleFor(address, nodes, owned.data?.names),
   };
 
@@ -332,7 +334,7 @@ export function LiveWorkspace() {
     <LiveContext value={context}>
       <div className="live-workspace">
         <div className="app">
-          <Sidebar items={navItems} activeView={view} onSelectView={setView} accountControls={<WalletButton />} profile={profile} />
+          <Sidebar items={navItems} activeView={view} onSelectView={setView} accountControls={<WalletButton name={displayName} />} profile={profile} />
           <div className="main">
             <main>
               <PageHeading title={TITLES[view]} description={DESCRIPTIONS[view]} action={headingAction} />

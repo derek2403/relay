@@ -30,3 +30,4 @@
 /* RainbowKit's modals (role="dialog" under [data-rk]; the app's own dialogs are <dialog> elements):
    keep the page's display h1 (Barlow, uppercase, tight tracking) out of their titles. */
 [data-rk] [role="dialog"] h1{font-family:inherit;line-height:normal;letter-spacing:normal;text-transform:none}
+.wallet-button span{max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -14,6 +14,7 @@ import {
   mergeActivity,
   ownStatus,
   providerMark,
+  orgNameFor,
   roleFor,
   toLiveNodes,
   typeOf,
@@ -416,6 +417,15 @@ test("activity merges relay decisions with local events, newest first", () => {
   );
   assert.equal("at" in merged[1], false);
   assert.deepEqual(mergeActivity(undefined, []), []);
+});
+
+test("orgNameFor names a wallet by the highest name it owns in the org", () => {
+  const nodes = toLiveNodes({ root: "acme.eth", raw: sampleTree(), nowSec: NOW });
+  assert.equal(orgNameFor(undefined, nodes), null);
+  assert.equal(orgNameFor(OWNER, nodes), "acme.eth", "the company owner reads as the company");
+  assert.equal(orgNameFor(LEAD, nodes), "eng.acme.eth");
+  assert.equal(orgNameFor(addr("d"), nodes), null);
+  assert.equal(orgNameFor(addr("d"), nodes, [{ name: "x.y.dev.eng.acme.eth", depth: 5, expiry: null, hasSubregistry: false }, { name: "y.dev.eng.acme.eth", depth: 4, expiry: null, hasSubregistry: true }]), "y.dev.eng.acme.eth");
 });
 
 test("roleFor derives the connected wallet's place", () => {

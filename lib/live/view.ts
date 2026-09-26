@@ -467,6 +467,20 @@ export function roleFor(address: Address | null | undefined, nodes: readonly Liv
   return "Not in this workspace";
 }
 
+/**
+ * The name to show for a wallet with no primary ENS name: the highest name it owns in this org
+ * (sodalabs.eth for the company owner, derek.cloudops… for Derek), else the top of the relay's
+ * owned list, else null.
+ */
+export function orgNameFor(address: Address | null | undefined, nodes: readonly LiveNode[], owned?: OwnedResponse["names"]): string | null {
+  if (!address) return null;
+  const mine = nodes
+    .filter((node) => node.status !== "Revoked" && isSet(node.owner as Address) && isAddressEqual(node.owner as Address, address))
+    .sort((a, b) => a.depth - b.depth)[0];
+  if (mine) return mine.name;
+  return [...(owned ?? [])].sort((a, b) => a.depth - b.depth)[0]?.name ?? null;
+}
+
 /** Two letters for the profile avatar: from the ENS name, else the address. */
 export function initialsFor(ensName: string | null | undefined, address: Address | null | undefined): string {
   if (ensName) return ensName.replace(/[^a-z0-9]/gi, "").slice(0, 2).toUpperCase() || "—";
