@@ -1,0 +1,14 @@
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);background:var(--paper);border:1px solid var(--ink);margin-bottom:24px;position:relative}
+.metric{padding:16px 22px;position:relative}
+.metric+.metric{border-left:1px solid var(--line)}
+.metric>span{display:flex;justify-content:space-between;font-size:12px;font-weight:600}
+.metric-icon{color:var(--red);font-size:16px}
+.metric>div:not(.metric-bar){display:flex;gap:12px;align-items:baseline;margin-top:4px}
+.metric strong{font:700 38px/1.1 'Barlow Condensed',sans-serif;letter-spacing:-.5px}
+.metric strong>span{font-size:26px}
+.metric small{font:10px 'Space Mono',monospace;color:var(--muted)}
+.metric small .live-dot{margin-right:4px}
+.provider-mini{font-size:17px!important;letter-spacing:8px;color:var(--ink)!important}
+.provider-mini b{font-weight:400}
+.metric-bar{position:absolute;bottom:0;left:0;right:0;height:3px;background:#24211e0b}
+.metric-bar i{display:block;width:16%;height:3px;background:var(--red)}

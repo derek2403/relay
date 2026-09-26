@@ -1,0 +1,29 @@
+.detail-panel{border-left:1px solid var(--ink);padding:24px;background:#e8e3d6}
+.detail-topline{display:flex;justify-content:space-between;align-items:center;font:10px 'Space Mono',monospace;margin-bottom:20px}
+.status-pill{padding:4px 7px;border:1px solid #777466;color:#465348;font:10px 'Space Mono',monospace}
+.status-pill.revoked{color:var(--red);border-color:var(--red)}
+.detail-icon{width:43px;height:43px;display:grid;place-items:center;border:1.5px solid var(--ink);border-radius:50%;font:700 12px 'Space Mono',monospace;margin-bottom:12px;background:var(--paper)}
+.detail-panel h2{font:700 32px/1 'Barlow Condensed',sans-serif;margin:0 0 8px;text-transform:uppercase}
+.full-name{font:11px/1.6 'Space Mono',monospace;color:#756a5d;overflow-wrap:anywhere;margin-bottom:17px}
+.owner-row{display:flex;justify-content:space-between;font-size:12px;color:#6e6458}
+.owner-row b{font:11px 'Space Mono',monospace;color:var(--ink)}
+.detail-section{border-top:1px solid var(--line);padding-top:18px;margin-top:20px}
+.detail-section-title{display:flex;justify-content:space-between;font-weight:700;font-size:13px;margin-bottom:16px}
+.detail-section-title span{font:10px 'Space Mono',monospace;color:#867768}
+.provider-row{margin-bottom:16px}
+.provider-label{display:flex;align-items:center;justify-content:space-between;font-size:13px}
+.provider-label>span{display:flex;gap:8px;align-items:center}
+.provider-logo{font-style:normal;display:grid;place-items:center;width:25px;height:25px;border:1px solid #a99c89;font-size:18px;background:var(--paper)}
+.provider-label b{font-size:12px}
+.provider-label b small{font-size:10px;font-weight:400;color:#887a68}
+.usage-track{height:3px;background:#25201915;margin:9px 0 6px}
+.usage-track i{display:block;height:3px;background:var(--red)}
+.usage-track.codex i{background:var(--ink)}
+.usage-caption{display:flex;justify-content:space-between;font:10px 'Space Mono',monospace;color:#817361}
+.allowed{font:10px 'Space Mono',monospace!important;color:#536046}
+.info-row{display:flex;justify-content:space-between;gap:10px;font-size:12px;margin:13px 0;color:#756756}
+.info-row b{font-weight:500;color:var(--ink)}
+.parent-link{border:0;background:none;color:var(--red);text-decoration:underline;padding:0;font-size:12px}
+.inherited-note{font-size:12px;line-height:1.6;color:#746451;border-left:2px solid var(--red);padding:0 0 0 12px;margin-top:21px}
+.detail-button{width:100%;padding:12px;background:var(--ink);border:1px solid var(--ink);color:var(--paper);font-size:12px;font-weight:600;margin-top:22px}
+.revoke-button{width:100%;background:none;border:0;padding:12px 0 0;color:#595a38;font-size:12px}

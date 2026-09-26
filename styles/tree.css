@@ -1,0 +1,52 @@
+.tree-shell{border:1px solid var(--ink);background:var(--paper);box-shadow:7px 7px 0 #70242230}
+.tree-toolbar{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:15px 23px;border-bottom:1px solid var(--ink)}
+.tree-title{display:flex;gap:10px;align-items:center}
+.tree-title strong{font:700 25px 'Barlow Condensed',sans-serif;text-transform:uppercase}
+.tree-symbol{font-size:25px}
+.subtle{font:11px 'Space Mono',monospace;color:var(--muted)}
+.tree-actions{display:flex;gap:10px;align-items:center}
+.search{display:flex;gap:9px;align-items:center;padding:8px 10px;border:1px solid var(--line);background:#ffffff30}
+.search>span{font-size:20px}
+.search input{border:0;background:none;outline:0;width:150px;padding:0;font-size:12px}
+.search kbd{font-size:11px;color:var(--muted)}
+.icon-button{width:33px;height:33px;border:1px solid var(--line);background:transparent;font-size:20px}
+.tree-body{display:grid;grid-template-columns:minmax(0,1fr) 315px}
+.graph-panel{min-width:0;background-image:radial-gradient(#29251e20 .7px,transparent .7px);background-size:18px 18px;position:relative}
+.graph-legend{display:flex;justify-content:center;gap:25px;padding:18px 0 10px;color:var(--muted);font:10px 'Space Mono',monospace}
+.graph-legend>span{display:flex;align-items:center;gap:7px}
+.legend-line{width:20px;height:1px;background:var(--ink)}
+.legend-dot{width:6px;height:6px;border-radius:50%;background:var(--red)}
+.graph-scroll{height:635px;overflow:auto;scrollbar-width:thin;scrollbar-color:#b7ac9b transparent}
+.graph{position:relative;width:900px;height:770px;transform-origin:top left;margin:auto}
+.connections{position:absolute;inset:0;overflow:visible;pointer-events:none}
+.connections path{fill:none;stroke:#aca292;stroke-width:1.5}
+.connections path.onpath{stroke:var(--red);stroke-width:2.5}
+.connections path.off{stroke-dasharray:5 5;opacity:.4}
+.node{position:absolute;width:185px;height:105px;padding:12px;background:#faf7ee;border:1.2px solid #a89e8f;border-radius:1px;text-align:left;box-shadow:3px 3px 0 #2520190a;z-index:1}
+.node:hover{transform:translateY(-2px);border-color:var(--ink)}
+.node.selected{background:var(--red);color:var(--paper);border-color:var(--ink);box-shadow:4px 4px 0 var(--ink)}
+.node.path-parent{border-color:var(--red)}
+.node.selected.path-parent{border-color:var(--ink)}
+.node.revoked{opacity:.4}
+.node.match-dim{opacity:.2}
+.node.alias{border-style:dashed}
+.node.alias:not(.selected){background:#f1ecdf}
+.node-top{display:flex;gap:7px;align-items:center;margin-bottom:9px}
+.node-icon{width:25px;height:25px;flex:none;display:grid;place-items:center;border:1px solid currentColor;border-radius:50%;font:700 10px 'Space Mono',monospace}
+.node-icon.agent,.node-icon.subagent{border-radius:2px;font-size:19px}
+.node-icon.company{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.node-name{font:700 16px 'Barlow Condensed',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node-status{width:4px;height:4px;border-radius:50%;background:currentColor;margin-left:auto;flex:none}
+.node-sub{font:10px 'Space Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.64;margin-bottom:8px}
+.node-foot{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700}
+.node-foot small{font:10px 'Space Mono',monospace;font-weight:400;opacity:.7}
+.node-port{position:absolute;bottom:-4px;left:calc(50% - 3px);width:6px;height:6px;border:1px solid #998c7c;background:var(--paper);border-radius:50%}
+.node.selected .node-port{background:var(--red);border-color:var(--ink)}
+.level-label{position:absolute;left:15px;font:10px 'Space Mono',monospace;color:#867a6b}
+.level-label span{display:block;margin-top:5px;font-size:8px}
+.canvas-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid var(--line);font:10px 'Space Mono',monospace}
+.canvas-footer .live-dot{color:var(--red);margin-right:5px}
+.zoom{display:flex;align-items:center;gap:4px;background:var(--paper);border:1px solid var(--line)}
+.zoom button{background:none;border:0;width:28px;height:28px}
+.zoom span{font-size:10px;width:35px;text-align:center}
+.zoom button:last-child{border-left:1px solid var(--line)}
