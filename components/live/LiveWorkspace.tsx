@@ -40,6 +40,7 @@ import type { ProviderId } from "@/lib/relay/catalog";
 import type { ChildrenResponse } from "@/lib/relay/types";
 import { ALL_BRANCHES, indexProviders, shortAddress, visibleNodes } from "@/lib/view-model";
 import { CHAIN_ID } from "@/lib/wagmi";
+import { AdminSignInPrompt } from "./actions/AdminWallet";
 import { AdminSignIn, LiveNotice, NoRootNotice, RelayClosed, RelayUnreachable, isRootName } from "./actions/LiveNotices";
 import { NodeActions } from "./actions/NodeActions";
 import { AgentsView } from "./agents/AgentsView";
@@ -320,7 +321,7 @@ export function LiveWorkspace() {
           : viewClosed
             ? "Every level above must allow the API. Spend is hidden: the relay has no RELAY_ADMIN_TOKEN."
             : policy.error && needsSignIn(policy.error)
-              ? "Every level above must allow the API. Sign in as admin to see spend."
+              ? <>Every level above must allow the API. <AdminSignInPrompt what="spend" /></>
               : "Every level above must allow the API. Removal and expiry cascade. Spend comes from the relay."
       }
       onSelectParent={() => {
@@ -386,7 +387,7 @@ export function LiveWorkspace() {
                 <section id="activityView" className="inline-activity">
                   <SectionHeading title="Workspace activity" subtitle="Relay decisions, every 5 s" />
                   {viewClosed && <RelayClosed />}
-                  {needsSignIn(log.error) && <AdminSignIn what="its decision log" />}
+                  {needsSignIn(log.error) && <AdminSignIn what="the decision log" />}
                   {log.error && !needsSignIn(log.error) && (
                     <p className="form-hint">{`Couldn't read the relay log: ${errorText(log.error)}`}</p>
                   )}

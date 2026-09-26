@@ -101,7 +101,7 @@ export function LiveSpend() {
           </select>
         </label>
       )}
-      {signIn && <AdminSignIn what="spend and its log" />}
+      {signIn && <AdminSignIn what="spend and the log" />}
       {!user ? (
         <p className="form-hint">
           {teamList.isLoading || statusLoading ? "Looking for users…" : `No users yet. Select a user in the tree, or add a member under ${team}.`}

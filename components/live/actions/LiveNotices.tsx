@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { tryNormalize } from "@/lib/ens/names";
 import { ADMIN_SIGN_IN, errorText } from "@/lib/relay/browser";
+import { AdminSignInPrompt } from "./AdminWallet";
 
 /** A khaki notice box: a title, a sentence or two, and optional controls. */
 export function LiveNotice({ title, children, tone = "info" }: { title: string; children?: ReactNode; tone?: "info" | "warning" }) {
@@ -76,14 +77,12 @@ export function RelayClosed() {
   );
 }
 
-/** Shown where relay reads answer 401: the admin signs in once per browser. */
+/** Shown where relay reads answer 401: the root owner signs in with their wallet (or the admin with the token), once per browser. */
 export function AdminSignIn({ what }: { what: string }) {
   return (
     <LiveNotice title="Sign in to see relay data" tone="warning">
       <p>
-        {`The relay shows ${what} to admins only. `}
-        <a href={ADMIN_SIGN_IN}>Sign in as admin</a>
-        {" to see it in this browser."}
+        <AdminSignInPrompt what={what} />
       </p>
     </LiveNotice>
   );

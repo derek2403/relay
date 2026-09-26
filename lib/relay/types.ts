@@ -71,6 +71,13 @@ export type PolicyResponse = {
   levels: LevelView[];
 };
 
+/**
+ * POST /api/relay/admin/wallet — the root owner's wallet signed the admin sign-in message; the
+ * answer carries the same admin session cookie the token sign-in sets. (GET answers the message
+ * to sign: NonceResponse in credentials-types.ts.)
+ */
+export type AdminSessionResponse = { admin: true; address: string };
+
 /** GET /api/relay/status */
 export type StatusResponse = {
   /** RELAY_ROOT_NAME, e.g. "acme.eth"; null when unset. */

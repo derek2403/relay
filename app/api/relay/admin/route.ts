@@ -2,17 +2,17 @@
 // GET shows a small form; POST checks the token and sets an HttpOnly session
 // cookie (an HMAC of the token, not the token), which the admin app's
 // same-origin requests to /api/relay/log and /api/relay/policy then carry.
+// The portal's wallet sign-in (/api/relay/admin/wallet) sets the same cookie.
 
 import type { NextRequest } from "next/server";
 
-import { ADMIN_COOKIE, isAdmin } from "@/lib/relay/auth";
+import { ADMIN_SESSION_SEC, adminCookie, isAdmin } from "@/lib/relay/auth";
 import { getConfig } from "@/lib/relay/config";
+import { isSecureRequest } from "@/lib/relay/owner-session";
 import { clientKey, relayLimits } from "@/lib/relay/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const WEEK = 7 * 24 * 3600;
 
 function page(message: string, signedIn: boolean, status = 200, cookie?: string) {
   const html = `<!doctype html>
@@ -41,10 +41,7 @@ ${
   return new Response(html, { status, headers });
 }
 
-const secure = (request: NextRequest) => request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
-
-const cookieHeader = (request: NextRequest, value: string, maxAge: number) =>
-  `${ADMIN_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure(request) ? "; Secure" : ""}`;
+const cookieHeader = (request: NextRequest, value: string, maxAge: number) => adminCookie(value, maxAge, isSecureRequest(request));
 
 export async function GET(request: NextRequest) {
   const config = getConfig();
@@ -80,5 +77,5 @@ export async function POST(request: NextRequest) {
     limits.failures.spend(client);
     return page("That is not the admin token.", false, 401);
   }
-  return new Response(null, { status: 303, headers: { location: "/", "set-cookie": cookieHeader(request, config.admin.cookie()!, WEEK), "cache-control": "no-store" } });
+  return new Response(null, { status: 303, headers: { location: "/", "set-cookie": cookieHeader(request, config.admin.cookie()!, ADMIN_SESSION_SEC), "cache-control": "no-store" } });
 }

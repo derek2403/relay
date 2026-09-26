@@ -15,7 +15,8 @@
 // RELAY_ROOT_NAME ends every session. Cookie-authenticated writes also need a
 // JSON content type and a same-origin Origin header (CSRF).
 
-import { type Address, type Hex, getAddress, isAddress, isAddressEqual, isHex, verifyMessage } from "viem";
+import { type Address, type Hex, createPublicClient, getAddress, http, isAddress, isAddressEqual, isHex, recoverMessageAddress } from "viem";
+import { sepolia } from "viem/chains";
 import { createSiweMessage, parseSiweMessage } from "viem/siwe";
 
 import { ADMIN_COOKIE, isAdmin } from "./auth";
@@ -23,6 +24,7 @@ import type { RelayConfig } from "./config";
 import { mac, safeEqual } from "./credentials-crypto";
 import type { OwnerSession } from "./credentials-types";
 import type { ChainReader } from "./ens";
+import { ClientLimit } from "./ratelimit";
 import { TOKEN_PREFIX } from "./token";
 
 export const OWNER_COOKIE = "relay_owner";
@@ -76,7 +78,7 @@ function randomNonce(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-const g = globalThis as unknown as { __relayOwnerNonces?: NonceStore };
+const g = globalThis as unknown as { __relayOwnerNonces?: NonceStore; __relayNonceLimit?: ClientLimit };
 
 /** The process's nonce store (on globalThis: the nonce and session routes may be separate bundles). */
 export function ownerNonces(): NonceStore {
@@ -84,12 +86,26 @@ export function ownerNonces(): NonceStore {
   return g.__relayOwnerNonces;
 }
 
+/**
+ * Nonces are kept in memory (at most MAX_NONCES per store), so issuing them is limited: 20 per
+ * client (one every 2 s after that), 300 overall, shared by the owner and admin wallet sign-ins.
+ */
+export function nonceLimit(): ClientLimit {
+  g.__relayNonceLimit ??= new ClientLimit([20, 0.5], [300, 5]);
+  return g.__relayNonceLimit;
+}
+
 // --- Message -----------------------------------------------------------------------------
 
 export type MessageInput = { domain: string; uri: string; address: Address; root: string; nonce: string; issuedAt: Date; expiresAt: Date };
 
-/** The EIP-4361 message the owner signs (wallets show it and check the domain). */
-export function ownerMessage(m: MessageInput): string {
+const CREDENTIALS_STATEMENT = (root: string) => `Sign in to manage the service credentials of the relay for ${root}. This does not send a transaction or cost gas.`;
+
+/**
+ * The EIP-4361 message the owner signs (wallets show it and check the domain). `statement`
+ * says what it signs in to: the credentials by default (the admin sign-in passes its own).
+ */
+export function ownerMessage(m: MessageInput, statement = CREDENTIALS_STATEMENT(m.root)): string {
   return createSiweMessage({
     domain: m.domain,
     uri: m.uri,
@@ -99,7 +115,7 @@ export function ownerMessage(m: MessageInput): string {
     nonce: m.nonce,
     issuedAt: m.issuedAt,
     expirationTime: m.expiresAt,
-    statement: `Sign in to manage the service credentials of the relay for ${m.root}. This does not send a transaction or cost gas.`,
+    statement,
   });
 }
 
@@ -238,15 +254,16 @@ export function csrfProblem(request: Request, publicUrl: string): Refusal | null
 // --- Ownership ---------------------------------------------------------------------------------------
 
 /**
- * Why `address` may not manage the relay's credentials, or null when it owns
- * RELAY_ROOT_NAME on-chain (and equals RELAY_ROOT_OWNER when pinned). Chain
- * read errors are thrown (ChainReadError).
+ * Why `address` isn't the company owner (who manages the relay's credentials
+ * and may sign in as its admin), or null when it owns RELAY_ROOT_NAME on-chain
+ * right now (and equals RELAY_ROOT_OWNER when pinned). Chain read errors are
+ * thrown (ChainReadError).
  */
 export async function ownerProblem(address: Address, deps: { config: RelayConfig; reader: ChainReader }): Promise<string | null> {
   const { config } = deps;
   if (!config.rootName || config.rootError) return config.rootError ?? "RELAY_ROOT_NAME is not set on the relay";
   if (config.rootOwner && !isAddressEqual(config.rootOwner, address)) {
-    return `${config.rootName} is pinned to ${config.rootOwner} (RELAY_ROOT_OWNER); ${getAddress(address)} can't manage credentials`;
+    return `${config.rootName} is pinned to ${config.rootOwner} (RELAY_ROOT_OWNER), not ${getAddress(address)}`;
   }
   const [root] = await deps.reader.readLevels(config.rootName, config.rootName);
   if (!root || root.status !== "registered") return `${config.rootName} is not registered`;
@@ -258,14 +275,27 @@ export async function ownerProblem(address: Address, deps: { config: RelayConfig
 
 export type VerifySignature = (args: { address: Address; message: string; signature: Hex }) => Promise<boolean>;
 
-/** EOA signatures, checked locally (viem verifyMessage). */
+/** EOA signatures, checked locally: the personal_sign signer (recoverMessageAddress) must be `address`. */
 export const verifyEoaSignature: VerifySignature = async ({ address, message, signature }) => {
   try {
-    return await verifyMessage({ address, message, signature });
+    return isAddressEqual(await recoverMessageAddress({ message, signature }), address);
   } catch {
     return false;
   }
 };
+
+/** EOA signatures locally; anything else (a smart-contract wallet) through ERC-1271 / ERC-6492 on Sepolia. */
+export function signatureVerifier(rpcUrl: string): VerifySignature {
+  return async (args) => {
+    if (await verifyEoaSignature(args)) return true;
+    try {
+      const client = createPublicClient({ chain: sepolia, transport: http(rpcUrl, { timeout: 10_000 }) });
+      return await client.verifyMessage(args);
+    } catch {
+      return false;
+    }
+  };
+}
 
 export type SignInInput = { address: unknown; message: unknown; signature: unknown };
 export type SignInResult = { ok: true; address: Address } | ({ ok: false } & Refusal);

@@ -31,8 +31,19 @@ import {
   parseBundle,
 } from "./bundle";
 import { catalogEntry, countUnit } from "./catalog";
+import type { NonceResponse } from "./credentials-types";
 import { DEFAULT_MAX_TOKEN_TTL_SEC, createToken } from "./token";
-import type { ChildView, ChildrenResponse, FundResponse, LevelStatus, LogEntry, PolicyResponse, RelayError, StatusResponse } from "./types";
+import type {
+  AdminSessionResponse,
+  ChildView,
+  ChildrenResponse,
+  FundResponse,
+  LevelStatus,
+  LogEntry,
+  PolicyResponse,
+  RelayError,
+  StatusResponse,
+} from "./types";
 
 // --- Agent keys -------------------------------------------------------------
 
@@ -232,6 +243,24 @@ export const needsSignIn = (err: unknown) => err instanceof RelayApiError && err
 
 /** The relay's admin sign-in page (a route handler, so it needs a full page load). */
 export const ADMIN_SIGN_IN = "/api/relay/admin";
+
+/** Admin sign-in with the root owner's wallet: GET the message to sign, POST the signature (sets the admin cookie). */
+export const ADMIN_WALLET_SIGN_IN = "/api/relay/admin/wallet";
+
+export const adminWalletApi = {
+  challenge: (address: string) => getJson<NonceResponse>(`${ADMIN_WALLET_SIGN_IN}?address=${q(address)}`, { credentials: "same-origin" }),
+  // JSON from this page: the relay refuses anything else as a possible cross-site request.
+  signIn: (address: string, message: string, signature: string) =>
+    getJson<AdminSessionResponse>(ADMIN_WALLET_SIGN_IN, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address, message, signature }),
+    }),
+};
+
+/** Relay answers that change once this browser holds the admin cookie (spend, the log, status). */
+export const ADMIN_QUERY_KEYS = ["relay-policy", "relay-live", "relay-log", "relay-status", "relay-admin-probe", "relay-credentials"] as const;
 
 // --- Snippets -------------------------------------------------------------------
 

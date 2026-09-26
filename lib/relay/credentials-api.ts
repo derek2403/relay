@@ -8,8 +8,7 @@
 // authenticates, and (for the owner) a fresh on-chain ownership check. No
 // response ever carries a secret value.
 
-import { type Address, createPublicClient, http } from "viem";
-import { sepolia } from "viem/chains";
+import type { Address } from "viem";
 
 import { jsonError } from "./auth";
 import { type RelayConfig, getConfig } from "./config";
@@ -26,16 +25,17 @@ import {
   addressedOrigin,
   csrfProblem,
   isSecureRequest,
+  nonceLimit,
   ownerMessage,
   ownerNonces,
   ownerProblem,
   sessionCookie,
   sessionToken,
+  signatureVerifier,
   usesCookieAuth,
-  verifyEoaSignature,
   verifySignIn,
 } from "./owner-session";
-import { ClientLimit, type RelayLimits, clientKey, relayLimits } from "./ratelimit";
+import { type ClientLimit, type RelayLimits, clientKey, relayLimits } from "./ratelimit";
 
 type Env = Record<string, string | undefined>;
 
@@ -50,19 +50,6 @@ export type CredentialsDeps = {
   verify: VerifySignature;
   now?: () => number;
 };
-
-/** EOA signatures locally; anything else (a smart-contract wallet) through ERC-1271 / ERC-6492 on Sepolia. */
-export function signatureVerifier(rpcUrl: string): VerifySignature {
-  return async (args) => {
-    if (await verifyEoaSignature(args)) return true;
-    try {
-      const client = createPublicClient({ chain: sepolia, transport: http(rpcUrl, { timeout: 10_000 }) });
-      return await client.verifyMessage(args);
-    } catch {
-      return false;
-    }
-  };
-}
 
 /** Dependencies for the running server. Applies the store to process.env on the way. */
 export function credentialsDeps(): CredentialsDeps {
@@ -169,14 +156,6 @@ export function getCredentials(request: Request, deps: CredentialsDeps): Respons
 }
 
 // --- GET /api/relay/credentials/nonce?address= ----------------------------------------------------
-
-const gl = globalThis as unknown as { __relayNonceLimit?: ClientLimit };
-
-/** Nonces are kept in memory (at most 1000), so issuing them is limited: 20 per client (one every 2 s after that), 300 overall. */
-function nonceLimit(): ClientLimit {
-  gl.__relayNonceLimit ??= new ClientLimit([20, 0.5], [300, 5]);
-  return gl.__relayNonceLimit;
-}
 
 export function getNonce(request: Request, deps: CredentialsDeps, limit: ClientLimit = nonceLimit()): Response {
   const unavailable = signInUnavailable(deps);

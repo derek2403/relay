@@ -1,8 +1,9 @@
 // Who may read the relay's decision log and per-level spend.
 //
 // - The admin: RELAY_ADMIN_TOKEN as "Authorization: Bearer <token>", or the
-//   session cookie set by signing in at /api/relay/admin (so the admin app's
-//   same-origin fetches work without code changes).
+//   session cookie set by signing in at /api/relay/admin (with the token, or
+//   at /api/relay/admin/wallet with the wallet that owns the company root), so
+//   the admin app's same-origin fetches work without code changes.
 // - An agent: its own kr1 token (x-api-key or Bearer), for its own name and
 //   the names under it. The relay checks the signer owns the name on ENS.
 // - Anyone, only in development without RELAY_ADMIN_TOKEN ("open").
@@ -20,6 +21,12 @@ import { TOKEN_PREFIX, TokenError, tokenFromHeaders, verifyToken } from "./token
 import type { RelayError } from "./types";
 
 export const ADMIN_COOKIE = "relay_admin";
+/** How long the admin session cookie lasts, however the admin signed in (seconds). */
+export const ADMIN_SESSION_SEC = 7 * 24 * 3600;
+
+/** Set-Cookie for the admin session (the value is config.admin.cookie(); "" with maxAge 0 signs out). */
+export const adminCookie = (value: string, maxAgeSec: number, secure: boolean) =>
+  `${ADMIN_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSec}${secure ? "; Secure" : ""}`;
 
 export type Viewer = { kind: "admin" } | { kind: "open" } | { kind: "agent"; name: string; signer: Address };
 
@@ -49,7 +56,8 @@ export function isAdmin(request: Request, deps: Pick<PolicyDeps, "config">): boo
   return !!cookie && !!expected && timingSafeEqual(digest(cookie), digest(expected));
 }
 
-const SIGN_IN = "Sign in at /api/relay/admin with RELAY_ADMIN_TOKEN, send it as Authorization: Bearer, or send an agent token for this name.";
+const SIGN_IN =
+  "Sign in at /api/relay/admin with RELAY_ADMIN_TOKEN (or in the portal with the root owner's wallet), send the token as Authorization: Bearer, or send an agent token for this name.";
 
 /**
  * Works out who is asking. Returns a Response to send back when the request

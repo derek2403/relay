@@ -4,6 +4,10 @@
 .agents-view .mono{font-family:'Space Mono',monospace}
 .agents-view .form-hint{margin-top:0}
 .agents-link{color:var(--red);font-weight:600;text-decoration:underline}
+/* The same link look on a button (admin sign-in with the owner's wallet, in notices and hints). */
+button.agents-link{border:0;background:none;padding:0;line-height:inherit;text-align:left}
+button.agents-link:disabled{opacity:.65;cursor:progress}
+.admin-signin-error{display:block;margin-top:4px}
 
 /* Agent keys */
 .agents-key-row{padding:16px 24px}

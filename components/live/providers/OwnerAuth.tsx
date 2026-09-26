@@ -103,7 +103,7 @@ export function OwnerBar({ creds, auth }: { creds: CredentialsResponse | undefin
       </>
     );
   } else if (creds.admin) {
-    body = <p>Signed in with the relay admin token. You can edit credentials.</p>;
+    body = <p>Signed in as the relay admin. You can edit credentials.</p>;
   } else {
     body = (
       <>

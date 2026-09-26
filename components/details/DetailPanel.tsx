@@ -9,8 +9,8 @@ type DetailPanelProps = {
   /** Label of the parent node; null for the root. */
   parentLabel: string | null;
   providerIndex: ProviderIndex;
-  /** Text after the shield icon, under the info rows. */
-  note: string;
+  /** Text after the shield icon, under the info rows (live mode may put a sign-in button in it). */
+  note: ReactNode;
   /** Mode-specific buttons at the bottom of the panel. */
   actions?: ReactNode;
   /** Live mode: the name's blockchain permissions (relay.chain along its path); omitted in the demo. */
@@ -121,8 +121,7 @@ export function DetailPanel({ node, grants, parentLabel, providerIndex, note, ac
             </InfoRow>
           </div>
           <div className="inherited-note">
-            <Icon name="shield" />
-            {` ${note}`}
+            <Icon name="shield" /> {note}
           </div>
           {actions}
         </>

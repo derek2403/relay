@@ -1,5 +1,6 @@
 "use client";
 
+import { AdminSignInPrompt } from "@/components/live/actions/AdminWallet";
 import { useLive } from "@/components/live/LiveContext";
 import { cx } from "@/lib/cx";
 import { ADMIN_SIGN_IN, errorText, needsSignIn } from "@/lib/relay/browser";
@@ -7,7 +8,7 @@ import type { LogEntry } from "@/lib/relay/types";
 
 import { logCost, logOutcome } from "./model";
 
-/** "The relay only shows this to the admin" with a link to its sign-in page (a route handler: full page load). */
+/** Where the relay shows `what` to the admin only: the owner's wallet sign-in, or the relay's token page. */
 export function AdminSignIn({ what }: { what: string }) {
   const { status } = useLive();
   if (status?.viewAuth === "closed") {
@@ -23,10 +24,7 @@ export function AdminSignIn({ what }: { what: string }) {
   }
   return (
     <p className="form-hint agents-signin">
-      The relay only shows {what} to the admin.{" "}
-      <a href={ADMIN_SIGN_IN} className="agents-link">
-        Sign in as admin
-      </a>
+      <AdminSignInPrompt what={what} />
     </p>
   );
 }
@@ -34,7 +32,7 @@ export function AdminSignIn({ what }: { what: string }) {
 /** The relay's recent decisions (SRC TryCall ActivityLog): When, Name, Call, Result, Cost (* estimated). */
 export function RelayActivityLog({ entries, error }: { entries: readonly LogEntry[] | undefined; error: Error | null }) {
   const { status } = useLive();
-  if (needsSignIn(error) || status?.viewAuth === "closed") return <AdminSignIn what="its log" />;
+  if (needsSignIn(error) || status?.viewAuth === "closed") return <AdminSignIn what="the log" />;
   if (error) return <p className="form-hint">Couldn&apos;t load the log: {errorText(error)}</p>;
   if (!entries) return <p className="form-hint">Loading the log…</p>;
   if (!entries.length) return <p className="form-hint">No calls yet.</p>;
