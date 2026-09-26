@@ -63,7 +63,7 @@ export type SessionFormProps = {
   prepSteps?: Step[];
   prepare?: () => Promise<boolean>;
   prepTx?: Tx;
-  /** A ./relay command doing the same from the agent's machine. */
+  /** A relay CLI command doing the same from the agent's machine. */
   cli?: (label: string | null, bundle: Bundle | null, seconds: number) => string;
   onDone: (name: string) => void;
   onCancel: () => void;

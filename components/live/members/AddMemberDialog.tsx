@@ -280,7 +280,7 @@ function AddMemberForm({
       </label>
       <label>
         Owner wallet
-        <input value={ownerInput} onChange={(e) => setOwnerInput(e.target.value)} placeholder="0x… (what ./relay init printed)" autoComplete="off" />
+        <input value={ownerInput} onChange={(e) => setOwnerInput(e.target.value)} placeholder="0x… (what relay init printed)" autoComplete="off" />
         {ownerIsContract && !registered && <small className="live-member-warning">{CONTRACT_OWNER_WARNING}</small>}
       </label>
       <div className="form-row">

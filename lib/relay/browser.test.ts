@@ -73,7 +73,7 @@ test("company setup: a failed read doesn't move setup above the live view", () =
   assert.equal(companySetupFirst("acme.eth", { ...done, active: false, subregistry: null, hasBundle: false }), true);
 });
 
-test("agent tokens: the ./relay command takes the agent's or subagent's label", () => {
-  assert.equal(relayTokenCommand("codex.derek.dev.eng.acme.eth"), "./relay token --as codex");
-  assert.equal(relayTokenCommand("research.codex.derek.dev.eng.acme.eth"), "./relay token --as research");
+test("agent tokens: the relay command takes the agent's or subagent's label", () => {
+  assert.equal(relayTokenCommand("codex.derek.dev.eng.acme.eth"), "relay token --as codex");
+  assert.equal(relayTokenCommand("research.codex.derek.dev.eng.acme.eth"), "relay token --as research");
 });

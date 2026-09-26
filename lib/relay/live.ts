@@ -30,7 +30,7 @@ export function revokedIn(levels: ChainLevel[], name: string, signer: Address): 
   const dead = firstDeadLevel(levels);
   if (dead) return revokedReason(dead.name);
   const leaf = levels[levels.length - 1];
-  if (!leaf?.owner || !isAddressEqual(leaf.owner, signer)) return `access revoked: ${signer} no longer owns ${name}. Run ./relay login.`;
+  if (!leaf?.owner || !isAddressEqual(leaf.owner, signer)) return `access revoked: ${signer} no longer owns ${name}. Run relay login.`;
   return null;
 }
 

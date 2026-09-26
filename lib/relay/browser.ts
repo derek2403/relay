@@ -60,8 +60,8 @@ export const DEMO_KEY_WARNING = "Stored unencrypted in this browser, for testing
 export const CONTRACT_OWNER_WARNING =
   "This address is a contract or smart wallet; it may not be able to hold a name. Use a normal wallet address.";
 
-/** ./relay (scripts/relay.ts) on the user's laptop: `--as` takes the agent's or a subagent's label. */
-export const relayTokenCommand = (name: string) => `./relay token --as ${name.split(".")[0]}`;
+/** The relay CLI (scripts/relay.ts, installed as `relay`) on the user's laptop: `--as` takes the agent's or a subagent's label. */
+export const relayTokenCommand = (name: string) => `relay token --as ${name.split(".")[0]}`;
 
 /** Agent CLI commands (scripts/agent.ts) for an agent that keeps its own key. */
 export const AGENT_CLI = {

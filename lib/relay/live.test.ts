@@ -130,7 +130,7 @@ test("live kill: an OpenAI Responses stream ends with an error event within one 
   const { event, data } = lastEvent(head + rest);
   assert.equal(event, "error");
   assert.equal(data.type, "error");
-  assert.equal(data.error.message, "access revoked: derek.dev.acme.eth was removed or expired. Run ./relay login.");
+  assert.equal(data.error.message, "access revoked: derek.dev.acme.eth was removed or expired. Run relay login.");
   assert.ok(!(head + rest).includes("sk-proj-OPENAI"));
 
   const [entry] = await waitForLog(d.meter);
@@ -154,7 +154,7 @@ test("live kill: a Claude stream ends with Anthropic's permission_error event", 
   chain.remove(AGENT);
   const { event, data } = lastEvent(head + (await readRest(reader)));
   assert.equal(event, "error");
-  assert.deepEqual(data, { type: "error", error: { type: "permission_error", message: `access revoked: ${AGENT} was removed or expired. Run ./relay login.` } });
+  assert.deepEqual(data, { type: "error", error: { type: "permission_error", message: `access revoked: ${AGENT} was removed or expired. Run relay login.` } });
   const [entry] = await waitForLog(d.meter);
   assert.equal(entry.reason, KILLED_REASON);
   // 1000 input tokens seen + streamed text, at Sonnet 4.6 prices.
@@ -188,7 +188,7 @@ test("live kill: removal before the provider answers aborts the call with 403 ac
   assert.equal(res.status, 403);
   const body = await res.json();
   assert.equal(body.error, "access revoked");
-  assert.equal(body.reason, "access revoked: derek.dev.acme.eth was removed or expired. Run ./relay login.");
+  assert.equal(body.reason, "access revoked: derek.dev.acme.eth was removed or expired. Run relay login.");
   assert.ok(Date.now() - started < 100 + INTERVAL_MS + SLACK_MS);
   const [entry] = await waitForLog(d.meter);
   assert.equal(entry.reason, KILLED_REASON);

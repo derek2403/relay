@@ -106,15 +106,15 @@ test("subagent gating: ready, setup, blocked", () => {
   assert.deepEqual(subagentGate({ ...base, subregistry: other, canRegisterBelow: true }, name), { mode: "ready", registry: other });
   const cli = subagentGate({ ...base, subregistry: other }, name);
   assert.equal(cli.mode, "blocked");
-  assert.match(cli.mode === "blocked" ? cli.reason : "", /\.\/relay/);
+  assert.match(cli.mode === "blocked" ? cli.reason : "", /relay CLI/);
   // Our own registry already attached: finish its setup (setParent) as part of the flow.
   assert.deepEqual(subagentGate({ ...base, subregistry: predicted.toUpperCase().replace("0X", "0x"), canRegisterBelow: true }, name).mode, "setup");
 });
 
 test("CLI snippets and countdown", () => {
   const bundle = { keys: ["codex", "openai-images"] as never, caps: { codex: 1 }, maxes: { "openai-images": 2 }, period: "total" as const };
-  assert.equal(subagentCommand("research", bundle, 20 * 60), "./relay subagent create research --codex 1 --images 2 --minutes 20");
-  assert.equal(subagentCommand(null, null, 0), "./relay subagent create research");
+  assert.equal(subagentCommand("research", bundle, 20 * 60), "relay subagent create research --codex 1 --images 2 --minutes 20");
+  assert.equal(subagentCommand(null, null, 0), "relay subagent create research");
   assert.equal(countdown(null, 100), null);
   assert.equal(countdown(200, 0), null);
   assert.equal(countdown(160, 100), "Ends in 1m 00s");

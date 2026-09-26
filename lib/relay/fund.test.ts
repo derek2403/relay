@@ -123,7 +123,7 @@ test("fund: refused outside the root, for the root, and for unregistered names",
   chain.remove("derek.dev.acme.eth");
   const removed = await fund(deps, { name: "derek.dev.acme.eth" });
   assert.equal(removed.status, 403);
-  assert.equal(reason(removed), "access revoked: derek.dev.acme.eth was removed or expired. Run ./relay login.");
+  assert.equal(reason(removed), "access revoked: derek.dev.acme.eth was removed or expired. Run relay login.");
   chain.restore("derek.dev.acme.eth");
   chain.remove("dev.acme.eth");
   assert.match(reason(await fund(deps, { name: "derek.dev.acme.eth" }))!, /dev\.acme\.eth was removed or expired/);

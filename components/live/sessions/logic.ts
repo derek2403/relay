@@ -139,7 +139,7 @@ const eq = (a: string | null, b: string | null) => !!a && !!b && a.toLowerCase()
  * - ready: a registry is attached and the wallet may register in it.
  * - setup: the wallet first deploys (or finishes) its own registry for the agent,
  *   attaches it (setSubregistry) and points it back (setParent) — SRC SubnameSetup's steps.
- * - blocked: say why; the dialog shows the ./relay alternative.
+ * - blocked: say why; the dialog shows the relay CLI alternative.
  */
 export function subagentGate(g: SubagentGateInput, agentName: string): SubagentGate {
   if (!g.active) return { mode: "blocked", reason: `${agentName} isn't live, so it can't get subagents.` };
@@ -148,7 +148,7 @@ export function subagentGate(g: SubagentGateInput, agentName: string): SubagentG
     // Our own registry, attached earlier: finishing its setup (setParent) is part of the flow.
     if (eq(g.subregistry, g.predicted)) return g.canRegisterBelow ? { mode: "setup", registry: g.subregistry } : { mode: "blocked", reason: `This wallet can't add names under ${agentName}.` };
     if (g.canRegisterBelow) return { mode: "ready", registry: g.subregistry };
-    return { mode: "blocked", reason: `Subagents of ${agentName} are managed by the key that set them up (usually ./relay on the user's laptop).` };
+    return { mode: "blocked", reason: `Subagents of ${agentName} are managed by the key that set them up (usually the relay CLI on the user's laptop).` };
   }
   if (!g.canSetSubregistry) return { mode: "blocked", reason: `This wallet can't attach a registry under ${agentName}. It needs the set-subregistry role in the registry that holds it.` };
   if (!g.predicted) return { mode: "loading" };
@@ -158,9 +158,9 @@ export function subagentGate(g: SubagentGateInput, agentName: string): SubagentG
 /** Labels a subagent can't take (scripts/relay.ts subagentLabel). */
 export const reservedSubagentLabels = (agentName: string) => ["agent", agentName.split(".")[0]];
 
-/** The ./relay command that creates the same subagent from the agent's machine. */
+/** The relay CLI command that creates the same subagent from the agent's machine. */
 export function subagentCommand(label: string | null, bundle: Bundle | null, seconds: number): string {
-  const parts = ["./relay subagent create", label || "research"];
+  const parts = ["relay subagent create", label || "research"];
   const codex = bundle?.keys.includes("codex") ? bundle.caps.codex : undefined;
   const images = bundle?.keys.includes("openai-images") ? bundle.maxes?.["openai-images"] : undefined;
   if (codex !== undefined) parts.push(`--codex ${codex}`);

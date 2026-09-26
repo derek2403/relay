@@ -128,7 +128,7 @@ test("an unregistered (revoked) middle level cuts off everything below it", asyn
   );
   assert.equal(d.allowed, false);
   assert.equal(d.denial, "not-registered");
-  assert.equal(d.reason, "access revoked: eng.acme.eth was removed or expired. Run ./relay login.");
+  assert.equal(d.reason, "access revoked: eng.acme.eth was removed or expired. Run relay login.");
 });
 
 test("a level missing from the walk (parent has no registry) is denied", async () => {
@@ -138,7 +138,7 @@ test("a level missing from the walk (parent has no registry) is denied", async (
   const d = await decide({ name: LEAF, provider: "claude", signer: AGENT }, deps(levels));
   assert.equal(d.denial, "not-registered");
   // The first level that isn't registered is named, not the leaf.
-  assert.equal(d.reason, "access revoked: derek.eng.acme.eth was removed or expired. Run ./relay login.");
+  assert.equal(d.reason, "access revoked: derek.eng.acme.eth was removed or expired. Run relay login.");
 });
 
 test("owner mismatch: the token signer must own the leaf name", async () => {

@@ -39,7 +39,7 @@ export type PolicyDecision = PolicyResponse & {
 
 /** The refusal for a name whose chain has a level that is no longer registered. */
 export const REVOKED_ERROR = "access revoked";
-export const revokedReason = (levelName: string) => `access revoked: ${levelName} was removed or expired. Run ./relay login.`;
+export const revokedReason = (levelName: string) => `access revoked: ${levelName} was removed or expired. Run relay login.`;
 
 /** Default dependencies for the running server. */
 export function relayDeps(): PolicyDeps {

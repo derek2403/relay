@@ -135,7 +135,7 @@ export function SessionActions({ node }: { node: LiveNode }) {
             <p className="dialog-description">
               This agent keeps its own key, so it signs its own tokens. Nothing secret leaves its machine. Run one of these there.
             </p>
-            <Snippet label="Made with ./relay on the user's laptop: print a token" text={relayTokenCommand(node.name)} />
+            <Snippet label="Made with the relay CLI on the user's laptop: print a token" text={relayTokenCommand(node.name)} />
             <Snippet label="Key made with npm run agent -- new: point Claude Code and Codex at the relay" text={AGENT_CLI.env(node.name, live.status?.baseUrl)} />
             <div className="dialog-footer">
               <button type="button" className="secondary" onClick={close}>

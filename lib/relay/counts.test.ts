@@ -176,7 +176,7 @@ test("revoked: a removed level refuses with 403 'access revoked' naming that lev
   const r = await relayJson(d, "mock", "/v1/messages", { kr, body: {} });
   assert.equal(r.status, 403);
   assert.equal(r.error, "access revoked");
-  assert.equal(r.reason, "access revoked: derek.dev.acme.eth was removed or expired. Run ./relay login.");
+  assert.equal(r.reason, "access revoked: derek.dev.acme.eth was removed or expired. Run relay login.");
   // A recently good caller's refusal is logged with the same reason.
   const [entry] = await waitForLog(d.meter, 2);
   assert.equal(entry.allowed, false);
@@ -185,7 +185,7 @@ test("revoked: a removed level refuses with 403 'access revoked' naming that lev
   // Expiry reads the same as removal, and other denials keep their wording.
   const expired = makeDeps(new MemoryChain(chain.levels.map((l) => (l.name === AGENT ? { ...l, status: "available", owner: null } : l))), env());
   const e = await relayJson(expired, "mock", "/v1/messages", { kr, body: {} });
-  assert.equal(e.reason, `access revoked: ${AGENT} was removed or expired. Run ./relay login.`);
+  assert.equal(e.reason, `access revoked: ${AGENT} was removed or expired. Run relay login.`);
   const denied = await relayJson(makeDeps(tree({}, {}), env()), "claude", "/v1/messages", { kr, body: {} });
   assert.equal(denied.error, "denied");
   assert.match(denied.reason!, /^acme\.eth does not allow claude/);
