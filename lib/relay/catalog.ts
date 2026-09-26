@@ -3,13 +3,14 @@
 //
 // Shared by the relay (server) and the admin portal (browser). Pure data.
 
-export type Category = "ai" | "dev" | "marketing" | "business" | "test";
+export type Category = "ai" | "dev" | "marketing" | "business" | "data" | "test";
 
 export const CATEGORY_LABELS: Record<Category, string> = {
   ai: "AI",
   dev: "Developer tools",
   marketing: "Marketing",
   business: "Business",
+  data: "Data",
   test: "Testing",
 };
 
@@ -200,6 +201,20 @@ export const CATALOG = [
     auth: { kind: "bearer" },
     metering: { kind: "requests" },
     dollarCaps: false,
+  },
+  // --- Data ------------------------------------------------------------------
+  {
+    // Open-Meteo's forecast API: free, no key. Read-only (routes.ts forwards GET /v1/<endpoint> only);
+    // each call counts one request, so relay.max.weather caps it.
+    id: "weather",
+    label: "Weather (Open-Meteo)",
+    category: "data",
+    keyEnv: null,
+    upstream: "https://api.open-meteo.com",
+    auth: { kind: "none" },
+    metering: { kind: "requests" },
+    dollarCaps: false,
+    note: "No key needed. Current weather and forecasts by latitude/longitude.",
   },
   // --- Testing ---------------------------------------------------------------
   {

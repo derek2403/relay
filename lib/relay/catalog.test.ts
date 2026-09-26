@@ -1,15 +1,15 @@
 // Catalog-driven forwarding: each auth kind, default headers, upstream
-// overrides, the route tables for OpenAI Images and Gemini, and the status list.
+// overrides, the route tables for OpenAI Images, Gemini and weather, and the status list.
 
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
-import { CATALOG, PROVIDER_IDS } from "./catalog";
+import { CATALOG, CATEGORY_LABELS, PROVIDER_IDS, catalogEntry, countUnit } from "./catalog";
 import { loadConfig, upstreamEnvName } from "./config";
 import { PROVIDER_SPECS, upstreamRequestHeaders } from "./providers";
-import { routeFor } from "./routes";
+import { allowedRoutesText, routeFor } from "./routes";
 import { MemoryChain, bundle, fakeUpstream, level, makeDeps, relayJson, tokenFor, waitForLog } from "./testkit";
 
 const KEYS = {
@@ -36,19 +36,44 @@ const ALL = PROVIDER_IDS.join(",");
 
 function deps(env: Record<string, string> = {}) {
   const chain = new MemoryChain([level("acme.eth", admin.address, bundle(ALL)), level(LEAF, agent.address, bundle(ALL))]);
-  const upstreams = Object.fromEntries(["gemini", "linear", "notion", "stripe", "openai-images"].map((id) => [upstreamEnvName(id as never), up.url]));
+  const upstreams = Object.fromEntries(["gemini", "linear", "notion", "stripe", "openai-images", "weather"].map((id) => [upstreamEnvName(id as never), up.url]));
   return makeDeps(chain, { ...KEYS, ...upstreams, ...env });
 }
 
 test("catalog: every provider has a spec; codex and openai-images share the OpenAI key", () => {
   assert.deepEqual(Object.keys(PROVIDER_SPECS).sort(), [...PROVIDER_IDS].sort());
-  assert.deepEqual(PROVIDER_IDS, ["claude", "codex", "openai-images", "gemini", "github", "railway", "vercel", "linear", "canva", "hubspot", "mailchimp", "stripe", "notion", "slack", "mock"]);
+  assert.deepEqual(PROVIDER_IDS, ["claude", "codex", "openai-images", "gemini", "github", "railway", "vercel", "linear", "canva", "hubspot", "mailchimp", "stripe", "notion", "slack", "weather", "mock"]);
   const config = loadConfig({ OPENAI_API_KEY: KEYS.OPENAI_API_KEY });
   assert.equal(config.keyFor("codex"), KEYS.OPENAI_API_KEY);
   assert.equal(config.keyFor("openai-images"), KEYS.OPENAI_API_KEY);
   assert.ok(config.isConfigured("openai-images"));
   assert.ok(!config.isConfigured("stripe"), "no key, not configured");
   assert.ok(config.isConfigured("mock"), "the mock needs no key");
+  assert.ok(config.isConfigured("weather"), "Open-Meteo needs no key");
+  assert.equal(config.keyFor("weather"), null);
+});
+
+test("catalog: weather is Open-Meteo, keyless, in its own Data category, counted per request", () => {
+  const weather = catalogEntry("weather");
+  assert.deepEqual(weather, {
+    id: "weather",
+    label: "Weather (Open-Meteo)",
+    category: "data",
+    keyEnv: null,
+    upstream: "https://api.open-meteo.com",
+    auth: { kind: "none" },
+    metering: { kind: "requests" },
+    dollarCaps: false,
+    note: "No key needed. Current weather and forecasts by latitude/longitude.",
+  });
+  assert.equal(CATEGORY_LABELS.data, "Data");
+  assert.deepEqual(Object.keys(CATEGORY_LABELS), ["ai", "dev", "marketing", "business", "data", "test"]);
+  assert.equal(countUnit("weather"), "requests");
+  assert.equal(loadConfig({}).upstreams.weather, "https://api.open-meteo.com");
+  // No key to inject: the client's token is dropped and nothing replaces it.
+  const headers = upstreamRequestHeaders(new Headers({ authorization: "Bearer kr1.a.0x0", "x-api-key": "kr1.a.0x0" }), PROVIDER_SPECS.weather, null);
+  assert.equal(headers.get("authorization"), null);
+  assert.equal(headers.get("x-api-key"), null);
 });
 
 test("upstreams: catalog defaults, RELAY_UPSTREAM_<ID> overrides (dashes become underscores), invalid overrides turn a provider off", () => {
@@ -101,6 +126,17 @@ test("routes: OpenAI Images and Gemini only forward what the relay can price; ot
   assert.deepEqual(routeFor("slack", "POST", ["chat.postMessage"]), { kind: "request", api: null });
 });
 
+test("routes: weather forwards GET /v1/<endpoint> only, one request each", () => {
+  assert.deepEqual(routeFor("weather", "GET", ["v1", "forecast"]), { kind: "request", api: null });
+  assert.deepEqual(routeFor("weather", "GET", ["v1", "dwd-icon"]), { kind: "request", api: null });
+  assert.deepEqual(routeFor("weather", "HEAD", ["v1", "forecast"]), { kind: "request", api: null });
+  for (const method of ["POST", "PUT", "PATCH", "DELETE"]) assert.equal(routeFor("weather", method, ["v1", "forecast"]), null, method);
+  assert.equal(routeFor("weather", "GET", ["forecast"]), null);
+  assert.equal(routeFor("weather", "GET", ["v1", "forecast", "x"]), null);
+  assert.equal(routeFor("weather", "GET", []), null);
+  assert.equal(allowedRoutesText("weather"), "GET /v1/*");
+});
+
 test("forwarding: bearer (Stripe), raw Authorization (Linear) and default headers (Notion) reach the upstream; each call counts one", async () => {
   const d = deps();
   const kr = await tokenFor(agent, LEAF);
@@ -151,6 +187,40 @@ test("forwarding: Gemini takes the token from ?key= or x-goog-api-key, strips it
   assert.deepEqual(charged.sort(), [0, 0.01, 0.01]);
 });
 
+test("forwarding: weather sends GETs with the query and no credentials, refuses writes, and counts toward relay.max.weather", async () => {
+  const d = deps();
+  const kr = await tokenFor(agent, LEAF);
+  const query = "?latitude=35.68&longitude=139.69&current=temperature_2m,weather_code,wind_speed_10m";
+  const r = await relayJson(d, "weather", "/v1/forecast", { kr, query, headers: { authorization: `Bearer ${kr}` } });
+  assert.equal(r.status, 200, r.text);
+  assert.equal(up.last().method, "GET");
+  assert.equal(up.last().url, `/v1/forecast${query}`);
+  assert.equal(up.last().headers.authorization, undefined, "no key, and the token never reaches Open-Meteo");
+  assert.equal(up.last().headers["x-api-key"], undefined);
+
+  const seen = up.seen.length;
+  const post = await relayJson(d, "weather", "/v1/forecast", { kr, body: {} });
+  assert.equal(post.status, 403);
+  assert.match(post.reason!, /doesn't forward POST \/v1\/forecast to weather; allowed: GET \/v1\/\*/);
+  assert.equal(up.seen.length, seen, "never sent");
+
+  const entries = await waitForLog(d.meter, 2);
+  assert.deepEqual(entries.filter((e) => e.provider === "weather" && e.allowed).map((e) => e.costUsd), [0]);
+  const { decide } = await import("./policy");
+  const p = await decide({ name: LEAF, provider: "weather" }, d);
+  assert.deepEqual(p.levels.map((l) => l.used?.weather), [1, 1]);
+
+  // A count cap on the agent: the second forecast is refused before it is sent.
+  const capped = makeDeps(
+    new MemoryChain([level("acme.eth", admin.address, bundle(ALL)), level(LEAF, agent.address, bundle("weather", { maxes: { weather: 1 } }))]),
+    { RELAY_UPSTREAM_WEATHER: up.url },
+  );
+  assert.equal((await relayJson(capped, "weather", "/v1/forecast", { kr, query })).status, 200);
+  const over = await relayJson(capped, "weather", "/v1/forecast", { kr, query });
+  assert.equal(over.status, 403);
+  assert.match(over.reason!, /weather/);
+});
+
 test("forwarding: a provider without a key answers 503 naming the variable to set", async () => {
   const d = deps({ STRIPE_SECRET_KEY: "" });
   const r = await relayJson(d, "stripe", "/v1/customers", { kr: await tokenFor(agent, LEAF) });
@@ -182,5 +252,16 @@ test("status: lists every catalog provider with category, key state, dollar caps
   assert.equal(byId.stripe.countUnit, "requests");
   assert.equal(byId.stripe.category, "business");
   assert.equal(byId.mock.configured, true);
+  assert.deepEqual(byId.weather, {
+    id: "weather",
+    label: "Weather (Open-Meteo)",
+    category: "data",
+    configured: true,
+    metered: false,
+    dollarCaps: false,
+    countUnit: "requests",
+    keyEnv: null,
+    note: "No key needed. Current weather and forecasts by latitude/longitude.",
+  });
   assert.ok(!JSON.stringify(body).includes("sk-proj-status-test"), "never a key value");
 });

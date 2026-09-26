@@ -3,8 +3,9 @@
 // Providers the relay prices from the request (Claude and Codex by tokens,
 // OpenAI Images per image, Gemini per request) only get the endpoints the
 // relay knows how to price: anything else (batches, fine-tuning, files, audio,
-// stored-object reads) could spend money the meter can't see. Operators can
-// add routes with RELAY_EXTRA_ROUTES.
+// stored-object reads) could spend money the meter can't see. Weather
+// (Open-Meteo, no key) is read-only: GET /v1/<endpoint>, one request each.
+// Operators can add routes with RELAY_EXTRA_ROUTES.
 //
 // Every other catalog provider gets any method and path, and each request
 // counts as one (priced at the catalog's $/request, if any), except requests
@@ -64,6 +65,8 @@ const ROUTES: Partial<Record<ProviderId, Rule[]>> = {
     { method: "GET", pattern: `/${v}/models`, kind: "free" },
     { method: "GET", pattern: `/${v}/models/*`, kind: "free" },
   ]),
+  // Open-Meteo: /v1/forecast and its per-model endpoints (/v1/dwd-icon, /v1/gfs, ...). Reads only.
+  weather: [{ method: "GET", pattern: "/v1/*", kind: "request" }],
 };
 
 /** Decoded path segments of a raw (percent-encoded, already validated) relay path, without a trailing empty segment. */
