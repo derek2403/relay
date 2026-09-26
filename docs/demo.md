@@ -58,8 +58,8 @@ the risky ones (new tokens, webhooks, access changes, revoking its own key), so 
 |---|---|---|
 | **Relay** (`/api/relay/<api>/…`) | Next.js server (`npm run dev`) | The real API keys, spend counters, the gas funder key |
 | **Admin portal** (`/`) | Browser + MetaMask (the admin wallet) | Nothing secret; it signs ENS transactions |
-| **CLI** (`./relay …`) | The user's laptop | The user's key and agent keys, in `~/.relay/` |
-| **Codex** | The user's laptop, started by `./relay codex` | Only an access token for its ENS name |
+| **CLI** (`relay …`) | The user's laptop, installed from the relay (`curl -fsSL <relay>/install \| sh`) | The user's key and agent keys, in `~/.relay/` |
+| **Codex** | The user's laptop, started by `relay codex` | Only an access token for its ENS name |
 
 On every call the relay:
 1. checks the token was signed by the name's current owner
@@ -93,22 +93,32 @@ If a name is removed while a response is still streaming, the relay cuts it off 
    skips anything already done. It takes a few minutes on Sepolia. At the end it prints `RELAY_ROOT_NAME` and
    `RELAY_ROOT_OWNER` for `.env.local`.
 3. Import the admin wallet into MetaMask for the portal.
-4. `npm run dev` and open http://localhost:3000.
+4. `npm run dev` and open http://localhost:3000. (`npm run dev` first bundles the CLI into `public/cli/`.)
+5. **Install the CLI** on the laptop that plays the user, from the running relay:
+   ```bash
+   curl -fsSL http://127.0.0.1:3000/install | sh
+   ```
+   It installs `relay` in `~/.local/share/relay/`, links it as `~/.local/bin/relay` (and prints the PATH line
+   to add if needed), and points it at this relay. Run it again after changing the CLI. Uninstall with
+   `rm ~/.local/bin/relay && rm -r ~/.local/share/relay`. From this repo, `./relay` runs the same CLI from source
+   (Codex then works in `demo-workspace/`); the steps below use `relay`.
 
 ## The demo, step by step
 
 **Before you start:**
-- relay running (`npm run dev`), a terminal in this repo
+- relay running (`npm run dev`), and a terminal in an empty folder for Codex's work, e.g.
+  `mkdir -p ~/relay-demo && cd ~/relay-demo` (`relay codex` runs Codex in the current folder; with `./relay`
+  from this repo it uses `demo-workspace/`)
 - `ADMIN_PRIVATE_KEY=0x... npm run demo:reset -- --yes` (a clean tree, no old keys or files)
 - portal open on **Access tree**, wallet connected as the admin on Sepolia; if `RELAY_ADMIN_TOKEN` is set,
   click **Sign in as admin** (otherwise the **Live view** under the tree says "The relay only shows spend and
   its log to the admin")
 - let the tree load once in the portal: after a restart the relay's first read of the company tree can take
-  up to a minute, and `./relay codex` would wait for it
+  up to a minute, and `relay codex` would wait for it
 
 1. **"I'm a new engineer."** In the terminal:
    ```bash
-   ./relay init
+   relay init
    ```
    It prints a wallet address. Say: *this is my identity; I never get an API key.*
 
@@ -126,13 +136,13 @@ If a name is removed while a response is still streaming, the relay cuts it off 
 
 3. **"I log in to Codex with my ENS name."**
    ```bash
-   ./relay codex
+   relay codex
    ```
    This sends about 8 Sepolia transactions from derek's wallet (about a minute) and does five things:
    - finds `derek.dev.eng.acme.eth`
    - sets up derek's space for agents
    - creates `codex.derek.dev.eng.acme.eth` (Codex $5, 2 images, 8 hours)
-   - installs the subagent skill in `demo-workspace/`
+   - installs the subagent skill (and `AGENTS.md`) in the current folder
    - starts Codex pointed at the relay, with a token for its ENS name
 
    Codex never sees the OpenAI key.
@@ -145,22 +155,22 @@ If a name is removed while a response is still streaming, the relay cuts it off 
 
 5. **"Codex creates its own subagents."** Following its skill, Codex runs:
    ```bash
-   ./relay subagent create research --codex 1 --minutes 20
-   ./relay subagent create image --images 1 --minutes 20
+   relay subagent create research --codex 1 --minutes 20
+   relay subagent create image --images 1 --minutes 20
    ```
    Two new names appear in the portal under `codex.derek…` (in the Live view within seconds, in the tree
    shortly after), each with its own key and limits. Codex uses them:
-   - `./relay exec --as research "…"`: the research subagent runs `codex exec` with its own $1 budget
-   - `./relay image --as image --prompt "…" --out header.png`: exactly one image, and a second attempt is refused
+   - `relay exec --as research "…"`: the research subagent runs `codex exec` with its own $1 budget
+   - `relay image --as image --prompt "…" --out header.png`: exactly one image, and a second attempt is refused
 
 6. **"I revoke it."** In the **Live view**, click **Remove derek.dev.eng.acme.eth**, then **Yes, remove it**
    and confirm in the wallet. Every name in derek's subtree turns *revoked* there, and derek's branch leaves
    the tree. (The same removal is in the tree: select derek, **Remove name & descendants**, then **Yes, remove
    it** in the "Remove access?" dialog.)
    - Any response still streaming is cut off within seconds.
-   - Codex stops: its next call gets a 403 with *"access revoked: derek.dev.eng.acme.eth was removed or expired. Run ./relay login."*
-     (`./relay` commands print the same line).
-   - `./relay login` now fails, because derek has no name.
+   - Codex stops: its next call gets a 403 with *"access revoked: derek.dev.eng.acme.eth was removed or expired. Run relay login."*
+     (`relay` commands stop with the same message).
+   - `relay login` now fails, because derek has no name.
    - The subagents are dead too; nobody rotated a key.
 
 ## Resetting between demos
@@ -171,7 +181,8 @@ ADMIN_PRIVATE_KEY=0x... npm run demo:reset
 
 This removes every user under the teams, clears the spend counters for removed names, deletes `~/.relay/`
 and deletes what Codex made in `demo-workspace/` (e.g. `brief.md`, `header.png`; it asks first, add `-- --yes`
-to skip the questions). It reads `RELAY_ROOT_NAME` and `RELAY_ADMIN_TOKEN` from `.env.local`; with the admin
+to skip the questions). The installed `relay` stays and still points at this relay; clear your demo folder
+(`~/relay-demo`) yourself. It reads `RELAY_ROOT_NAME` and `RELAY_ADMIN_TOKEN` from `.env.local`; with the admin
 token it also clears removed names from the relay's decision log. The company, departments, teams and the
 launch squad stay. You can reuse the label `derek`: a re-registered name starts with fresh limits and no
 leftover spend.
@@ -194,10 +205,15 @@ leftover spend.
 
 | Symptom | Fix |
 |---|---|
-| `./relay codex` says "no name found" | The admin hasn't added your address yet, or you ran `init` again and got a new key |
+| `relay: command not found` | `~/.local/bin` isn't on your PATH: add the line the installer printed, or run `~/.local/bin/relay` |
+| The installer says `/cli/relay.mjs` was not found | The relay wasn't started with `npm run dev` / `npm run build`; run `npm run build:cli` on the relay (and restart it if it runs with `next start`) |
+| `relay codex` says "no name found" | The admin hasn't added your address yet, or you ran `init` again and got a new key |
 | "insufficient funds" in the CLI | The funder is empty or unset; send Sepolia ETH to the funder address |
-| Codex can't run `./relay` | Start it through `./relay codex`: it allows network access and write access to `~/.relay/agents/` and `~/.relay/codex/` |
-| `./relay codex` prints "several names" | Your key holds more than one name the company added; pass `--name derek.dev.eng.acme.eth` |
+| `relay codex` refuses your home folder (or a folder above it) | Codex may write the whole folder it works in: `cd` into a project folder first |
+| Codex asks whether you trust the folder | The folder has its own `.codex/` (project config, hooks), so `relay codex` leaves that choice to you; an empty folder like `~/relay-demo` doesn't ask |
+| Codex can't run `relay` | Start it through `relay codex`: it puts `relay` on Codex's PATH and allows network access and write access to `~/.relay/agents/` and `~/.relay/codex/` |
+| `relay codex` prints "several names" | Your key holds more than one name the company added; pass `--name derek.dev.eng.acme.eth` |
+| The CLI talks to the wrong relay | `relay config` shows the address and where it comes from; `relay config --relay http://127.0.0.1:3000` changes it |
 | A subagent create fails with a nonce error | Run it again; the steps are idempotent |
 | Spend doesn't move | Check the relay terminal; the portal's Live view (under the tree, and on the Agents page) refreshes every 3 seconds |
 | Everything is slow | Set your own Sepolia RPC in `NEXT_PUBLIC_SEPOLIA_RPC_URL`; the public one is rate-limited |

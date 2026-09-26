@@ -68,7 +68,7 @@ so parallel calls can't overrun a cap. Image and per-request calls count only on
 `RELAY_LIVE_CHECK_SEC` seconds (default 5; `0` turns it off). If a level was removed or expired, or the
 signer no longer owns the name, the call is cut off within one interval: an SSE stream ends with the
 provider's own error event, other bodies are aborted, and the log records `killed: access revoked`. New
-calls get `403 {"error":"access revoked","reason":"access revoked: <name> was removed or expired. Run ./relay login."}`.
+calls get `403 {"error":"access revoked","reason":"access revoked: <name> was removed or expired. Run relay login."}`.
 
 ## Endpoints
 
@@ -83,47 +83,105 @@ calls get `403 {"error":"access revoked","reason":"access revoked: <name> was re
 | `GET /api/ens/children?name=` | none | Names registered directly under a name (503 while a first scan runs) |
 | `GET /api/ens/owned?address=` | none, rate limited | Names under the root an address holds, deepest first (the CLI uses it to find "your" name) |
 | `POST /api/fund {"name"}` | none; the chain is the check | Tops up a member's wallet from the funder |
+| `GET /install.sh` | none | The CLI installer (`curl -fsSL <relay>/install \| sh`), with this relay as its default |
+| `GET /cli/relay.mjs`, `/cli/relay.mjs.sha256` | none | The bundled CLI and its checksum (static files from `npm run build:cli`) |
 
 **Funder.** `POST /api/fund` pays `FUNDER_AMOUNT_ETH` only to a member: a registered name under the root whose
 levels above are all held by the company owner, held by someone other than the owner and the funder, whose
 wallet is below `FUNDER_MIN_BALANCE_ETH`, once per registration, within `FUNDER_DAILY_LIMIT_ETH` per UTC
-day. Grants are recorded in `.data/relay.json`. The admin UI calls it after adding a member; `./relay login`
+day. Grants are recorded in `.data/relay.json`. The admin UI calls it after adding a member; `relay login`
 calls it when the wallet can't pay for gas.
 
 Run one relay process per data directory: spend lives in that process and in `.data/relay.json`.
 
-## `./relay`: the user's CLI
+## `relay`: the user's CLI
 
-`./relay` (a wrapper for `scripts/relay.ts`; `npm run relay -- …` works too) runs on the user's laptop. The
-user holds one wallet key and the ENS name the admin gave it; only that key sends transactions, agent keys
-only sign tokens.
+`relay` runs on the user's laptop. The user holds one wallet key and the ENS name the admin gave it; only that
+key sends transactions, agent keys only sign tokens.
+
+**Install** (macOS or Linux, Node.js 20+, curl), from the relay itself:
 
 ```bash
-./relay init --relay http://127.0.0.1:3000   # make your key, print your address (send it to your admin)
-./relay whoami [--json]                      # address, names, balance, agent and subagents with spend
-./relay login [--name N] [--codex USD] [--images N] [--hours H] [--force]
-./relay codex [-- <codex args>]              # log in if needed, then start Codex through the relay
-./relay subagent create <label> [--codex USD] [--images N] [--minutes M]
-./relay subagent list [--json]
-./relay subagent remove <label>
-./relay exec --as <label> "<task>"           # codex exec as a subagent
-./relay image --as <label> --prompt "…" [--out file.png] [--size 1024x1024]
-./relay token [--as <label>]                 # print a relay token
-./relay env [--as <label>]                   # KEYLESS_TOKEN, OPENAI_BASE_URL, OPENAI_API_KEY exports
-./relay logout [--all]
+curl -fsSL http://127.0.0.1:3000/install | sh
+```
+
+`GET /install.sh` (`app/install.sh/route.ts`, script in `lib/relay/install-script.ts`) returns a POSIX `sh`
+script with this relay's address as its default: `RELAY_PUBLIC_URL`'s origin, else the address the request was
+made to (`Host`, or `X-Forwarded-Host` / `X-Forwarded-Proto` behind a proxy; only a plain host name is used,
+anything else leaves `RELAY_URL` to the user). A loopback `RELAY_PUBLIC_URL`
+(`http://127.0.0.1:3000`, as in `.env.example`) is used only for requests to a loopback address; another machine
+gets the address it asked for. The script:
+
+- needs `node` 20 or newer and `curl`, and says so with a link to https://nodejs.org otherwise;
+- downloads `/cli/relay.mjs` and `/cli/relay.mjs.sha256` (from an `https` relay, redirects must stay on `https`;
+  a plain `http` relay that isn't this machine gets a warning, since nothing protects the download on the way),
+  checks the checksum, runs `relay.mjs version`, then
+  moves it into `~/.local/share/relay/relay.mjs` (mode 755, atomically) and links `~/.local/bin/relay` to it.
+  An earlier link of its own is replaced; a `relay` that belongs to another program is left alone and the
+  install stops. A missing build (404) stops it with "this relay has no CLI build" (under `next start`, restart
+  the relay after the first `npm run build:cli`: it lists `public/` once at startup);
+- writes `install.json` (`{ "relayUrl" }`) next to `relay.mjs` and saves the relay in `~/.relay/config.json`
+  unless that already names a valid one (`relay config --relay <url> --if-unset`; a kept relay is shown with
+  the exact `relay config --relay …` line to switch); it never touches your keys;
+- warns when the Codex CLI is missing, and prints the `export PATH=…` line for `~/.zshrc` (`$ZDOTDIR` when set)
+  / `~/.bashrc` and the `fish_add_path` line when `~/.local/bin` isn't on PATH;
+- ends with the uninstall line for the folders it used (shell-quoted, removing only its own files) and
+  `Next: relay init`.
+
+`RELAY_URL`, `RELAY_INSTALL_DIR` (default `~/.local/share/relay`), `RELAY_BIN_DIR` (default `~/.local/bin`) and
+`RELAY_HOME` change the defaults; set them for `sh` (`curl … | RELAY_URL=https://relay.example sh`). The two
+folders must be absolute paths. The install stays outside `RELAY_HOME` (also through symlinks), so `demo:reset` and `relay logout --all` don't remove it. Re-run the installer to
+update; uninstall with `rm ~/.local/bin/relay && rm -r ~/.local/share/relay` (`rm -r ~/.relay` deletes the keys).
+
+**The bundle.** `npm run build:cli` (`scripts/build-cli.mjs`, esbuild, about 0.2 s) bundles `scripts/relay.ts`
+with viem into `public/cli/relay.mjs` (about 850 KB, not minified, not committed) and writes its sha256 next to
+it. `npm run dev` and `npm run build` run it first (`predev`, `prebuild`). The bundle embeds its version
+(`package.json` + short git sha, with `-dirty` when the tree has uncommitted changes, e.g. `0.1.0+9dd0bd8-dirty`)
+and the Codex templates from `scripts/templates/`. Rebuild after changing the CLI (`predev` only runs when
+`npm run dev` starts).
+
+**From this repo**, `./relay` (a wrapper for `scripts/relay.ts`; `npm run relay -- …` works too) runs the same CLI
+from source. The two modes differ only here:
+
+| | `relay` (installed) | `./relay` (repo) |
+|---|---|---|
+| Codex works in | the current folder, or `RELAY_WORKSPACE` (never your home folder, a folder above it, `/`, or anything overlapping `~/.relay`, also through symlinks) | `demo-workspace/` |
+| Codex trusts | that folder, unless it has its own `.codex/` (project config, hooks, exec policies): then Codex asks | `demo-workspace/` and the repo |
+| Settings files | `~/.relay/config.json`, then the installer's `install.json` | `~/.relay/config.json`, then the repo's `.env.local` |
+| Templates | embedded at build time | read from `scripts/templates/` |
+
+```bash
+relay init [--relay URL]                    # make your key, print your address (send it to your admin)
+relay whoami [--json]                       # address, names, balance, agent and subagents with spend
+relay login [--name N] [--codex USD] [--images N] [--hours H] [--force]
+relay codex [-- <codex args>]               # log in if needed, then start Codex through the relay
+relay subagent create <label> [--codex USD] [--images N] [--minutes M]
+relay subagent list [--json]
+relay subagent remove <label>
+relay exec --as <label> "<task>"            # codex exec as a subagent
+relay image --as <label> --prompt "…" [--out file.png] [--size 1024x1024]
+relay token [--as <label>]                  # print a relay token
+relay env [--as <label>]                    # KEYLESS_TOKEN, OPENAI_BASE_URL, OPENAI_API_KEY exports
+relay logout [--all]
+relay config [--relay URL] [--rpc URL]      # show the relay and RPC in use (and where from); flags save them
+relay version                               # also --version
 ```
 
 - `login` finds your name with `/api/ens/owned` (or `--name`), asks `/api/fund` for gas if needed, deploys
   your resolver and registry, attaches it under your name, and creates `codex.<your name>` owned by a fresh
   agent key (defaults: Codex $5, 2 images, 8 h, period `total`; only APIs your own name allows).
-- `codex` writes `demo-workspace/AGENTS.md` and the `ens-subagents` skill from `scripts/templates/`, then
-  runs the Codex CLI (`npm i -g @openai/codex`) in `demo-workspace/` with the relay as its model provider.
-  Codex calls `demo-workspace/relay` to create subagents (`research.codex.…`, `image.codex.…`).
+- `codex` writes `AGENTS.md` and the `ens-subagents` skill (`.agents/skills/ens-subagents/SKILL.md`) into its
+  workspace, with the right command (`relay` or `./relay`) in them; a file there it didn't write, or one
+  reached through a symlink, is left alone. It then runs the Codex CLI (`npm i -g @openai/codex`) there with the relay as its model provider.
+  Codex runs `relay` to create subagents (`research.codex.…`, `image.codex.…`); the installed CLI makes sure
+  Codex's PATH finds it (if needed through a link in `~/.relay/bin/`).
 - Files live in `~/.relay/` (`RELAY_HOME`): `user.json`, `config.json`, `session.json`, `agents/<name>.json`,
-  `codex/`. Folder 700, files 600.
-- Settings: `--relay` / `RELAY_URL` / `config.json` / `RELAY_PUBLIC_URL` from `.env.local` (default
-  `http://localhost:3000`); `--rpc` / `RELAY_RPC_URL` / `NEXT_PUBLIC_SEPOLIA_RPC_URL`. `RELAY_CODEX_MODEL`
-  and `RELAY_IMAGE_MODEL` (default `gpt-image-1`) pick models.
+  `codex/`, and `bin/` when needed. Folder 700, files 600. Codex may write only `agents/` and `codex/`.
+- Settings: `--relay` / `RELAY_URL` / `config.json` / the installer's `install.json` (installed) or
+  `RELAY_PUBLIC_URL` from `.env.local` (repo), default `http://localhost:3000`; `--rpc` / `RELAY_RPC_URL` /
+  `NEXT_PUBLIC_SEPOLIA_RPC_URL` / `config.json` / `.env.local` (repo), default Tenderly's public Sepolia gateway
+  (`https://sepolia.gateway.tenderly.co`). `RELAY_CODEX_MODEL` and `RELAY_IMAGE_MODEL` (default `gpt-image-1`)
+  pick models.
 
 The older `npm run agent -- new|env|call|policy|token|primary-name` (`scripts/agent.ts`) still works for an
 agent that keeps its own key in `.keyless/agent.json`.
@@ -141,4 +199,5 @@ agent that keeps its own key in `.keyless/agent.json`.
 ```bash
 npm test            # lib/**/*.test.ts and tests/**/*.test.ts
 npm run typecheck
+npm run build:cli   # then: node public/cli/relay.mjs version
 ```

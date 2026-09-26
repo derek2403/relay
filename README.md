@@ -11,7 +11,8 @@ The relay and the ENS code are ported from `ethtokyo2026` (Keyless Relay). The d
 ## Run
 
 Requirements: Node 20+, a browser wallet (MetaMask, Rabby, Brave, …) on Sepolia with a little Sepolia ETH,
-and optionally the Codex CLI (`npm i -g @openai/codex`) for the agent part of the demo.
+and optionally the Codex CLI (`npm i -g @openai/codex`) for the agent part of the demo, run through the
+`relay` CLI ([Install the CLI](#install-the-cli)).
 
 ```sh
 npm install
@@ -51,18 +52,44 @@ Then, in the portal:
 
 `npm run build` then `npm start` serves the production build on the same address.
 
+## Install the CLI
+
+Members install the `relay` command from the relay itself (macOS or Linux, Node.js 20+ and curl):
+
+```sh
+curl -fsSL http://127.0.0.1:3000/install | sh   # your relay's address
+relay init                                         # makes your key; send the address it prints to your admin
+relay login                                        # once the admin has added you
+relay codex                                        # starts Codex through the relay, in the current folder
+```
+
+The installer downloads `/cli/relay.mjs` (one file, checked against `/cli/relay.mjs.sha256`) into
+`~/.local/share/relay/`, links it as `~/.local/bin/relay`, and points it at the relay it came from. If
+`~/.local/bin` isn't on your PATH it prints the line to add. Run it again to update (`relay version` shows what
+you have). `RELAY_URL`, `RELAY_INSTALL_DIR` and `RELAY_BIN_DIR` change the defaults; set them for `sh`, e.g.
+`curl -fsSL https://relay.example/install | RELAY_URL=https://relay.example sh`. Keys live in `~/.relay/`
+(`RELAY_HOME`), apart from the install, so `npm run demo:reset` doesn't uninstall anything.
+
+Uninstall: `rm ~/.local/bin/relay && rm -r ~/.local/share/relay` (and `rm -r ~/.relay` to delete your keys too).
+
+The relay serves what `npm run build:cli` writes to `public/cli/` (not committed); `npm run dev` and
+`npm run build` run it first. In this repo `./relay` runs the same CLI from source (Codex then works in
+`demo-workspace/`).
+
 ## Checks
 
 ```sh
 npm run typecheck
-npm test            # relay, ENS helpers and the portal's view logic
+npm test            # relay, ENS helpers, the CLI's modes and installer, and the portal's view logic
+npm run build:cli   # public/cli/relay.mjs, the installable CLI (npm run build does this first)
 npm run build       # next build --webpack
 ```
 
 ## Structure
 
 - `app/api/**`: the relay (`/api/relay/<provider>/…`, status, policy, log, admin, credentials, attestation),
-  ENS listings (`/api/ens/children`, `/api/ens/owned`) and the gas funder (`/api/fund`).
+  ENS listings (`/api/ens/children`, `/api/ens/owned`) and the gas funder (`/api/fund`). `app/install.sh/`
+  serves the CLI installer (`lib/relay/install-script.ts`).
 - `lib/relay/**`, `lib/ens/**`, `lib/hooks/**`: the relay server, ENSv2 contracts and recipes, and the React
   hooks the portal uses, from `ethtokyo2026`. `lib/relay/credentials*`, `owner-session.ts` and `attestation*`
   are this repo's additions (see [docs/credentials-and-attestation.md](docs/credentials-and-attestation.md)).
@@ -71,7 +98,8 @@ npm run build       # next build --webpack
 - `components/{shell,tree,details,activity,ui}`: presentational components fed by `lib/view-model.ts`, which
   `lib/live/view.ts` builds from ENS and relay data.
 - `styles/*.css`: the khaki design, imported in cascade order by `app/layout.tsx`.
-- `scripts/`: the `./relay` CLI, `org:seed`, `org:setup`, `demo:reset`, `agent`.
+- `scripts/`: the CLI (`scripts/relay.ts`: `./relay` from source; `build-cli.mjs` bundles it as `relay`), `org:seed`,
+  `org:setup`, `demo:reset`, `agent`.
 - `contracts/`: the SessionMinter (Foundry; `forge install foundry-rs/forge-std --no-git` first).
 
 More: [docs/relay-server.md](docs/relay-server.md) (relay, catalog, limits, endpoints, CLI),
