@@ -66,6 +66,7 @@ import {
   workspaceProblem,
   workspaceTargets,
 } from "./lib/cli-mode";
+import { CODEX_PROVIDER_ID, DEFAULT_CODEX_MODEL, authScript, conflictingTables, withRelayCodexConfig, withoutRelayCodexConfig } from "./lib/codex-config";
 import {
   type Chain,
   REPO_ROOT,
@@ -694,8 +695,8 @@ async function login(opts: Opts): Promise<Session> {
 
   // What the user may use (its bundle, on the team's resolver): the agent never lists more.
   const userBundle = entry.resolver ? parseBundle(await readTexts(pub, entry.resolver, userName, bundleRecordKeys())) : null;
-  const codexUsd = positiveNumber(opts.codex, "--codex", 5, { zeroOk: true });
-  const images = positiveNumber(opts.images, "--images", 2, { integer: true, zeroOk: true });
+  const codexUsd = positiveNumber(opts.codex, "--codex", 0.3, { zeroOk: true });
+  const images = positiveNumber(opts.images, "--images", 1, { integer: true, zeroOk: true });
   const hours = positiveNumber(opts.hours, "--hours", 8);
   const bundle: Bundle = { keys: [], caps: {}, maxes: {}, period: "total" };
   const allow = (p: ProviderId) => !userBundle || userBundle.keys.includes(p);
@@ -832,8 +833,93 @@ async function login(opts: Opts): Promise<Session> {
 
 async function cmdLogin(opts: Opts) {
   const session = await login(opts);
+  const plain = setupCodex(session, relayUrl(opts), opts.model || process.env.RELAY_CODEX_MODEL?.trim() || DEFAULT_CODEX_MODEL);
   if (opts.json) out(JSON.stringify(session));
-  else info(`Next: ${CMD} codex`);
+  else info(plain ? `Next: ${plain} (or ${CMD} codex)` : `Next: ${CMD} codex`);
+}
+
+// --- plain `codex` -----------------------------------------------------------------------------------
+
+const codexHomeDir = () => path.resolve(process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex"));
+const codexAuthFile = () => path.join(HOME, "codex-auth");
+const codexSkillFile = () => path.join(codexHomeDir(), "skills", "ens-subagents", "SKILL.md");
+
+/** Writes `text` to `file` through a temp file in the same folder (never through a symlink), keeping its mode. */
+function replaceFile(file: string, text: string, mode: number) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.rmSync(tmp, { force: true });
+  fs.writeFileSync(tmp, text, { flag: "wx", mode });
+  fs.renameSync(tmp, file);
+}
+
+/**
+ * Makes plain `codex` use the relay as this agent: a "relay" provider (selected by the top-level
+ * model_provider/model keys, the user's own set aside) in Codex's config.toml whose auth command (RELAY_HOME/codex-auth → `relay codex-token`) signs a fresh token,
+ * plus the ens-subagents skill. Codex's own sign-in (auth.json) is not touched. Returns the command to
+ * run, or null when Codex can't be set up (it says why; `relay codex` still works).
+ */
+function setupCodex(session: Session, base: string, model: string): string | null {
+  const configFile = path.join(codexHomeDir(), "config.toml");
+  const before = readText(configFile) ?? "";
+  const clash = conflictingTables(before);
+  if (clash.length) {
+    info(`  ! didn't set up plain codex: ${configFile} already has [${clash.join("], [")}]. Use ${CMD} codex instead.`);
+    return null;
+  }
+  ensureHome();
+  const viaNode = MODE === "installed";
+  const cli = viaNode ? SELF : path.join(REPO_ROOT, "relay");
+  replaceFile(codexAuthFile(), authScript({ node: process.execPath, cli, viaNode, relayHome: HOME }), 0o700);
+  const { text } = withRelayCodexConfig(before, { agent: session.agent, relayUrl: base, authCommand: codexAuthFile(), model });
+  if (before && !fs.existsSync(`${configFile}.before-relay`)) fs.copyFileSync(configFile, `${configFile}.before-relay`);
+  let mode = 0o600;
+  try {
+    mode = fs.statSync(configFile).mode & 0o777;
+  } catch {}
+  replaceFile(configFile, text, mode);
+
+  // The subagent skill, where Codex looks in any folder (only replacing a copy we wrote).
+  const skillFile = codexSkillFile();
+  const skill = renderTemplate(loadTemplates().skill, { agent: session.agent, user: session.user, relay: base, cmd: CMD });
+  const now = readText(skillFile);
+  if (now === null || isGeneratedFile(now)) {
+    if (now !== skill) replaceFile(skillFile, skill, 0o644);
+  } else info(`  ! left ${skillFile} alone: ${CMD} didn't write it`);
+
+  done(`set up Codex: provider "${CODEX_PROVIDER_ID}" (${model}) signs in as ${session.agent} · ${configFile}`);
+  return "codex";
+}
+
+/** Undoes setupCodex: our block and default profile line, the auth script, and our copy of the skill. */
+function teardownCodex() {
+  const configFile = path.join(codexHomeDir(), "config.toml");
+  const before = readText(configFile);
+  if (before !== null) {
+    const after = withoutRelayCodexConfig(before);
+    if (after !== before) {
+      replaceFile(configFile, after, fs.statSync(configFile).mode & 0o777);
+      info(`Removed the relay provider from ${configFile}; plain codex is back to its own sign-in.`);
+    }
+  }
+  fs.rmSync(codexAuthFile(), { force: true });
+  const skill = readText(codexSkillFile());
+  if (skill !== null && isGeneratedFile(skill)) fs.rmSync(path.dirname(codexSkillFile()), { recursive: true, force: true });
+}
+
+/**
+ * `relay codex-token`: what Codex's auth command runs. Signs a 15-minute token for the session's agent
+ * locally (no network, so Codex never waits on it) and prints only the token. A removed or expired
+ * name still gets a token; the relay refuses it with the reason, which Codex shows.
+ */
+async function cmdCodexToken(opts: Opts) {
+  const session = requireSession();
+  const loaded = loadAgentKey(session.agent);
+  if (!loaded) throw new UserError(`No key for ${session.agent} in ${HOME}. Run ${CMD} login.`);
+  const expiry = Math.min(session.expiry, nowSec() + 15 * 60);
+  if (expiry <= nowSec()) throw new UserError(`The agent session ${session.agent} has ended. Run ${CMD} login.`);
+  const { token } = await signToken(loaded.account, session.agent, expiry, session.relayUrl || relayUrl(opts), null);
+  process.stdout.write(token);
 }
 
 // --- whoami --------------------------------------------------------------------------------------
@@ -1085,7 +1171,7 @@ async function cmdCodex(opts: Opts, extra: string[]) {
 
   const [first, ...rest] = extra;
   const sub = first && EXEC_SUBCOMMANDS.has(first) ? first : null;
-  const model = opts.model || process.env.RELAY_CODEX_MODEL?.trim() || undefined;
+  const model = opts.model || process.env.RELAY_CODEX_MODEL?.trim() || DEFAULT_CODEX_MODEL;
   // Codex may write subagent keys (agents/) and subagent runs' CODEX_HOME (codex/), not the user's key or settings.
   for (const dir of [files.agents, files.codexHome]) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const flags = codexFlags(base, { workspace: ws, addDirs: [files.agents, files.codexHome], interactive: !sub, model });
@@ -1142,14 +1228,14 @@ async function cmdSubagentCreate(opts: Opts, rawLabel: string | undefined) {
   const { pub } = chain;
   const label = subagentLabel(rawLabel, session.agent);
   const name = `${label}.${session.agent}`;
-  const codexUsd = opts.codex !== undefined ? positiveNumber(opts.codex, "--codex", 1) : undefined;
+  const codexUsd = opts.codex !== undefined ? positiveNumber(opts.codex, "--codex", 0.1) : undefined;
   const images = opts.images !== undefined ? positiveNumber(opts.images, "--images", 1, { integer: true }) : undefined;
-  const minutes = positiveNumber(opts.minutes, "--minutes", 20);
+  const minutes = positiveNumber(opts.minutes, "--minutes", 5);
   const bundle: Bundle = { keys: [], caps: {}, maxes: {}, period: "total" };
-  // Codex $1 unless only images were asked for.
+  // Codex $0.10 unless only images were asked for.
   if (codexUsd !== undefined || images === undefined) {
     bundle.keys.push("codex");
-    bundle.caps.codex = codexUsd ?? 1;
+    bundle.caps.codex = codexUsd ?? 0.1;
   }
   if (images !== undefined) {
     bundle.keys.push("openai-images");
@@ -1237,7 +1323,7 @@ async function cmdSubagentList(opts: Opts) {
     return;
   }
   if (!rows.length) {
-    out(`No subagents under ${session.agent}. Create one: ${CMD} subagent create research --codex 1 --minutes 20`);
+    out(`No subagents under ${session.agent}. Create one: ${CMD} subagent create research --codex 0.1 --minutes 5`);
     return;
   }
   for (const r of rows) {
@@ -1277,7 +1363,7 @@ async function cmdExec(opts: Opts, words: string[]) {
       : `You are ${actor.name}, a subagent with its own ENS name and budget (${bundle ? limitsText(bundle) : "see ENS"}). ` +
         `Do this one task, write your answer as your final message, and don't create subagents.\n\nTask: ${task}`;
   fs.mkdirSync(files.codexHome, { recursive: true, mode: 0o700 });
-  const model = opts.model || process.env.RELAY_CODEX_MODEL?.trim() || undefined;
+  const model = opts.model || process.env.RELAY_CODEX_MODEL?.trim() || DEFAULT_CODEX_MODEL;
   const args = ["exec", ...codexFlags(base, { workspace: codexWorkspace(), interactive: false, model }), "--skip-git-repo-check", "--ephemeral", prompt];
   info(`Running Codex as ${actor.name}`);
   // Its own CODEX_HOME: a subagent started by the agent runs inside the agent's sandbox, where ~/.codex is read-only.
@@ -1348,6 +1434,7 @@ async function cmdEnv(opts: Opts) {
 // --- logout ------------------------------------------------------------------------------------------
 
 function cmdLogout(opts: Opts) {
+  teardownCodex();
   if (opts.all) {
     fs.rmSync(HOME, { recursive: true, force: true });
     info(`Deleted ${HOME} (your key too). Run ${CMD} init to start over.`);
@@ -1436,7 +1523,7 @@ function help(): string {
   const rows: [string, string?][] = [
     ["init [--relay URL]", "Create your key and print your address (send it to your admin)"],
     ["whoami [--json]", "Your address, names, balance, agent and subagents with spend"],
-    ["login [--name N]", "Set up your agent codex.<your name> (Codex $5, 2 images, 8 h)"],
+    ["login [--name N]", "Set up your agent codex.<your name> (Codex $0.30, 1 image, 8 h) and plain `codex`"],
     ["", "      [--codex USD] [--images N] [--hours H] [--force]"],
     ["codex [-- <codex args>]", "Log in if needed, then start Codex through the relay"],
     ["", `(${CMD} codex exec "…" runs codex exec the same way)`],
@@ -1552,6 +1639,8 @@ async function main() {
       return cmdImage(opts);
     case "token":
       return cmdToken(opts);
+    case "codex-token":
+      return cmdCodexToken(opts);
     case "env":
       return cmdEnv(opts);
     case "logout":
