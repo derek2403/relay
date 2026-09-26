@@ -68,10 +68,10 @@ test("templates: every placeholder is filled, with the mode's command", () => {
     assert.ok(isGeneratedFile(repo));
   }
   const skill = renderTemplate(template("skill"), vars("relay"));
-  assert.ok(skill.includes("\nrelay subagent create research --codex 1 --minutes 20\n"));
+  assert.ok(skill.includes("\nrelay subagent create research --codex 0.1 --minutes 5\n"));
   assert.ok(skill.includes('\nrelay exec --as research "'));
   assert.ok(skill.includes("\nrelay image --as image --prompt"));
-  assert.ok(renderTemplate(template("skill"), vars("./relay")).includes("\n./relay subagent create image --images 1 --minutes 20\n"));
+  assert.ok(renderTemplate(template("skill"), vars("./relay")).includes("\n./relay subagent create image --images 1 --minutes 5\n"));
   assert.ok(renderTemplate(template("agents"), vars("relay")).includes("through Keyless Relay (http://127.0.0.1:3000)"));
 });
 

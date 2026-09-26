@@ -141,7 +141,7 @@ If a name is removed while a response is still streaming, the relay cuts it off 
    This sends about 8 Sepolia transactions from derek's wallet (about a minute) and does five things:
    - finds `derek.dev.eng.acme.eth`
    - sets up derek's space for agents
-   - creates `codex.derek.dev.eng.acme.eth` (Codex $5, 2 images, 8 hours)
+   - creates `codex.derek.dev.eng.acme.eth` (Codex $0.30, 1 image, 8 hours)
    - installs the subagent skill (and `AGENTS.md`) in the current folder
    - starts Codex pointed at the relay, with a token for its ENS name
 
@@ -155,12 +155,12 @@ If a name is removed while a response is still streaming, the relay cuts it off 
 
 5. **"Codex creates its own subagents."** Following its skill, Codex runs:
    ```bash
-   relay subagent create research --codex 1 --minutes 20
-   relay subagent create image --images 1 --minutes 20
+   relay subagent create research --codex 0.1 --minutes 5
+   relay subagent create image --images 1 --minutes 5
    ```
    Two new names appear in the portal under `codex.derek…` (in the Live view within seconds, in the tree
    shortly after), each with its own key and limits. Codex uses them:
-   - `relay exec --as research "…"`: the research subagent runs `codex exec` with its own $1 budget
+   - `relay exec --as research "…"`: the research subagent runs `codex exec` with its own $0.10 budget
    - `relay image --as image --prompt "…" --out header.png`: exactly one image, and a second attempt is refused
 
 6. **"I revoke it."** In the **Live view**, click **Remove derek.dev.eng.acme.eth**, then **Yes, remove it**

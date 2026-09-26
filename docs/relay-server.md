@@ -169,7 +169,7 @@ relay version                               # also --version
 
 - `login` finds your name with `/api/ens/owned` (or `--name`), asks `/api/fund` for gas if needed, deploys
   your resolver and registry, attaches it under your name, and creates `codex.<your name>` owned by a fresh
-  agent key (defaults: Codex $5, 2 images, 8 h, period `total`; only APIs your own name allows).
+  agent key (defaults: Codex $0.30, 1 image, 8 h, period `total`; only APIs your own name allows).
 - `codex` writes `AGENTS.md` and the `ens-subagents` skill (`.agents/skills/ens-subagents/SKILL.md`) into its
   workspace, with the right command (`relay` or `./relay`) in them; a file there it didn't write, or one
   reached through a symlink, is left alone. It then runs the Codex CLI (`npm i -g @openai/codex`) there with the relay as its model provider.

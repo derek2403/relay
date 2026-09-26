@@ -11,19 +11,22 @@ A subagent is a real ENS name under `{{AGENT}}`, with its own key and its own li
 It expires on its own. Run these commands from this folder, one at a time: each `subagent create` sends
 Sepolia transactions and takes about 30 seconds. If one fails with a nonce error, run it again.
 
+These commands need the network and write the subagent's key to ~/.relay, so when your sandbox blocks
+them, ask to run them outside the sandbox (escalated permissions) instead of working around it.
+
 ## Research
 
 ```bash
-{{CMD}} subagent create research --codex 1 --minutes 20
+{{CMD}} subagent create research --codex 0.1 --minutes 5
 {{CMD}} exec --as research "<the research question; ask for a short summary with sources>"
 ```
 
-The research subagent runs Codex on its own $1 budget and prints its answer.
+The research subagent runs Codex on its own $0.10 budget for 5 minutes and prints its answer.
 
 ## An image
 
 ```bash
-{{CMD}} subagent create image --images 1 --minutes 20
+{{CMD}} subagent create image --images 1 --minutes 5
 {{CMD}} image --as image --prompt "<what the image shows>" --out header.png
 ```
 
