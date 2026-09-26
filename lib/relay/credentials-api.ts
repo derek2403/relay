@@ -69,7 +69,7 @@ export function credentialsDeps(): CredentialsDeps {
   const config = getConfig();
   return {
     config,
-    reader: getChainReader(config.rpcUrl),
+    reader: getChainReader(config.rpcUrl, config.logsRpcUrl),
     env: process.env,
     runtime: credentialsRuntime(process.env),
     limits: relayLimits(),

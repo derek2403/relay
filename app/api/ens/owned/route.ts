@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const scan = await cachedTree(getChainReader(config.rpcUrl), config.rootName);
+    const scan = await cachedTree(getChainReader(config.rpcUrl, config.logsRpcUrl), config.rootName);
     const names = ownedIn(scan, address);
     if (!scan.complete && names.length === 0) {
       // Part of the tree is still being read (first scans of a registry take a while): nothing found yet isn't an answer.

@@ -41,6 +41,8 @@ export type RelayConfig = {
   /** RELAY_ROOT_OWNER: the only address the relay accepts as the root's owner (null = not pinned). */
   rootOwner: Address | null;
   rpcUrl: string;
+  /** RPC for eth_getLogs scans (finding subnames): RELAY_LOGS_RPC_URL, else rpcUrl. Needs wide block ranges. */
+  logsRpcUrl: string;
   /** Upstream base URL per provider (no trailing slash); null for mock or an invalid override. */
   upstreams: Record<ProviderId, string | null>;
   /** How often a call in flight re-checks that its name is still alive (ms); null = never (RELAY_LIVE_CHECK_SEC=0). */
@@ -270,11 +272,13 @@ export function loadConfig(env: Env = process.env): RelayConfig {
     .map((s) => new URL(s).origin);
   const admin = adminAuth(clean(env.RELAY_ADMIN_TOKEN));
 
+  const rpcUrl = clean(env.RELAY_RPC_URL) || clean(env.NEXT_PUBLIC_SEPOLIA_RPC_URL) || DEFAULT_RPC_URL;
   return {
     rootName,
     rootError,
     rootOwner,
-    rpcUrl: clean(env.RELAY_RPC_URL) || clean(env.NEXT_PUBLIC_SEPOLIA_RPC_URL) || DEFAULT_RPC_URL,
+    rpcUrl,
+    logsRpcUrl: clean(env.RELAY_LOGS_RPC_URL) || rpcUrl,
     upstreams,
     liveCheckMs: parseLiveCheck(clean(env.RELAY_LIVE_CHECK_SEC)),
     funder: funderConfig(env),

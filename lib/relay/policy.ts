@@ -44,7 +44,7 @@ export const revokedReason = (levelName: string) => `access revoked: ${levelName
 /** Default dependencies for the running server. */
 export function relayDeps(): PolicyDeps {
   const config = getConfig();
-  return { config, reader: getChainReader(config.rpcUrl), meter: getMeter(config.dataDir) };
+  return { config, reader: getChainReader(config.rpcUrl, config.logsRpcUrl), meter: getMeter(config.dataDir) };
 }
 
 type SpendLevel = Pick<LevelView, "name" | "resource" | "bundle">;

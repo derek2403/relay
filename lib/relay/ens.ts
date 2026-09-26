@@ -269,7 +269,11 @@ export class ViemChainReader implements TreeReader {
   private readsBlock: bigint | null = null;
   private blockInFlight: Promise<bigint> | null = null;
 
-  constructor(readonly client: PublicClient) {}
+  /** `logsClient` serves the eth_getLogs scans (label discovery); some RPCs cap log ranges hard (Alchemy's free plan: 10 blocks). */
+  constructor(
+    readonly client: PublicClient,
+    readonly logsClient: PublicClient = client,
+  ) {}
 
   /** The latest block number; concurrent callers share one eth_blockNumber. */
   private latestBlock(): Promise<bigint> {
@@ -499,7 +503,7 @@ export class ViemChainReader implements TreeReader {
     let chunks = 0;
     let latest: bigint;
     try {
-      latest = await this.client.getBlockNumber({ cacheTime: 0 });
+      latest = await this.logsClient.getBlockNumber({ cacheTime: 0 });
     } catch (err) {
       throw new ChainReadError(`Could not read the latest block: ${shortError(err)}`);
     }
@@ -532,7 +536,7 @@ export class ViemChainReader implements TreeReader {
       while (state.creationBlock === null && from <= latest) {
         spend(from);
         const { to, logs } = await range(from, (to) =>
-          this.client.getLogs({ address: VERIFIABLE_FACTORY, event: proxyDeployedEvent, args: { proxyAddress: registry }, fromBlock: from, toBlock: to }),
+          this.logsClient.getLogs({ address: VERIFIABLE_FACTORY, event: proxyDeployedEvent, args: { proxyAddress: registry }, fromBlock: from, toBlock: to }),
         );
         state.factoryScannedTo = to;
         if (logs.length) state.creationBlock = logs[0].blockNumber;
@@ -545,7 +549,7 @@ export class ViemChainReader implements TreeReader {
     let from = state.scannedTo !== null ? state.scannedTo + 1n : state.creationBlock;
     while (from <= latest) {
       spend(from);
-      const { to, logs } = await range(from, (to) => this.client.getLogs({ address: registry, events: labelEvents, fromBlock: from, toBlock: to }));
+      const { to, logs } = await range(from, (to) => this.logsClient.getLogs({ address: registry, events: labelEvents, fromBlock: from, toBlock: to }));
       for (const log of logs) {
         const label = (log.args as { label?: string }).label;
         if (typeof label === "string" && !state.seen.has(label)) {
@@ -568,21 +572,23 @@ function shortError(err: unknown): string {
   return (e?.shortMessage || e?.message || String(err)).split("\n")[0];
 }
 
-export function createChainReader(rpcUrl: string): ViemChainReader {
-  const client = createPublicClient({ chain: sepolia, transport: http(rpcUrl, { timeout: 15_000 }) });
-  return new ViemChainReader(client as PublicClient);
+export function createChainReader(rpcUrl: string, logsRpcUrl: string = rpcUrl): ViemChainReader {
+  const client = (url: string) => createPublicClient({ chain: sepolia, transport: http(url, { timeout: 15_000 }) }) as PublicClient;
+  const reads = client(rpcUrl);
+  return new ViemChainReader(reads, logsRpcUrl === rpcUrl ? reads : client(logsRpcUrl));
 }
 
 // One reader per RPC URL, kept on globalThis so its caches survive dev-server reloads of other
 // modules. A reload of this module brings a new class, and the old instance is replaced.
 const g = globalThis as unknown as { __relayReaders?: Map<string, ViemChainReader> };
 
-export function getChainReader(rpcUrl: string): ViemChainReader {
+export function getChainReader(rpcUrl: string, logsRpcUrl: string = rpcUrl): ViemChainReader {
   g.__relayReaders ??= new Map();
-  let reader = g.__relayReaders.get(rpcUrl);
+  const key = `${rpcUrl}|${logsRpcUrl}`;
+  let reader = g.__relayReaders.get(key);
   if (!(reader instanceof ViemChainReader)) {
-    reader = createChainReader(rpcUrl);
-    g.__relayReaders.set(rpcUrl, reader);
+    reader = createChainReader(rpcUrl, logsRpcUrl);
+    g.__relayReaders.set(key, reader);
   }
   return reader;
 }

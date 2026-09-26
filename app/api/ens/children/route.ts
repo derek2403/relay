@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result: ChildrenResponse = await getChainReader(config.rpcUrl).listChildren(name);
+    const result: ChildrenResponse = await getChainReader(config.rpcUrl, config.logsRpcUrl).listChildren(name);
     return Response.json(result, { headers: { "cache-control": "no-store" } });
   } catch (err) {
     if (isScanLimitError(err)) return jsonError(err.retryable ? 503 : 422, err.retryable ? "still scanning" : "too many subnames", err.message);
