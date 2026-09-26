@@ -8,13 +8,17 @@ Stage demos on **https://relay.derek2403.win**, with the company `sodalabs.eth` 
    A small OpenAI-style web app then uses the LLM, OpenWeatherMap and image generation with that one token.
 3. **Proof you can check.** `npm run verify:live` reads the live org from Sepolia and shows why a member can't
    raise his own limits. **View attestation** fetches a fresh Intel TDX quote from Phala Cloud with your nonce.
+4. **A blockchain agent with delegated MultiBaas access.** Derek's agent reviews the treasury, pays an approved
+   supplier, deploys and pauses an escrow on Sepolia through MultiBaas, and is refused everything outside its grant.
+5. **Human approval with World ID.** A payout subagent asks at renewal for more than it had. The relay pauses it,
+   and only a human who passes World ID's Selfie Check can let it resume, with a narrower scope.
 
 | Sponsor | What to show |
 |---|---|
-| ENS | Demos 1, 2 and 3: names are identities, limits live on ENS, removal revokes at once |
+| ENS | Every demo: names are identities, limits and blockchain grants live on ENS, removal revokes at once |
 | Phala | Demo 3, part B: a fresh TDX quote from Phala Cloud, checked in the browser and by Phala's verifier |
-| MultiBaas | Demo 3, part C: connected on the Providers page, and no agent can reach it directly |
-| World | Set up and verified with World's verify endpoint; the approval flow isn't built yet (see the end) |
+| MultiBaas | Demo 4: monitor, pay, deploy and manage on Sepolia through MultiBaas, all delegated down the tree (also Demo 3, part C) |
+| World | Demo 5: a paused agent resumes only after a Selfie Check by the approver whose World ID is linked |
 
 | Name | What it is |
 |---|---|
@@ -231,21 +235,164 @@ runs on its own server.
    ```sh
    curl -s "$RELAY_BASE_URL/multibaas/api/v0/chains/ethereum/status" -H "Authorization: Bearer $RELAY_API_KEY"
    ```
-   It answers `403` with `sodalabs.eth does not allow multibaas`: nothing in the tree grants it. Even a name that
-   is allowed gets `403 the relay never forwards requests to MultiBaas (Curvegrid) directly`. Agents will only
-   reach it through blockchain actions delegated to them.
+   It answers `403 the relay never forwards requests to MultiBaas (Curvegrid) directly`, or, if Derek has no
+   blockchain grant, `… does not allow multibaas`. Agents reach MultiBaas only through the blockchain actions
+   delegated to them (Demo 4).
 
-### Not built yet: don't demo these
+## Demo 4: A blockchain agent with delegated MultiBaas access
 
-These are designed but not implemented. The portal has no screens for them:
+The company connects one MultiBaas deployment (Ethereum Sepolia) to the relay. Blockchain permissions travel
+down the same ENS tree as API limits, in a `relay.chain` record next to them: capabilities (read, track, prepare,
+submit, deploy, manage), contracts, methods, approved recipients, a per-payment maximum, a monthly limit, gas and
+the approval rule. Each level can only narrow the level above, and a payment counts against every level.
 
-- **MultiBaas blockchain agent:** delegated blockchain permissions on ENS (read, track, prepare, submit, deploy,
-  manage), an agent task panel, proposals with human approval, a treasury vault and an escrow template on
-  Sepolia.
-- **World ID incident approvals:** a risky subagent renewal is paused, an approver reviews the incident, and a
-  fresh World Selfie Check from the approver's enrolled World session is required before only the approved scope
-  resumes. The World app (`relay-incident-approval`) is registered, and its settings are in the server's `.env`.
-  A check against World's verify endpoint reaches proof verification, so the setup is correct.
+| On Sepolia | Address |
+|---|---|
+| Treasury vault (holds the STD, pays only approved recipients within its own limits) | [0xD78b…c576](https://sepolia.etherscan.io/address/0xD78b2C8CC860BdC1d8A95Be791ccb89B5eFBc576) |
+| Soda Test Dollar (STD) | [0x219b…48F9](https://sepolia.etherscan.io/address/0x219bfF215855BDACb72aD747d6d343B1271b48F9) |
+| Relay signer (signs approved transactions; can only pay through the vault) | [0x8076…6FA0](https://sepolia.etherscan.io/address/0x8076AE8b234d54f5Eb8e73E2E6b514835a376FA0) |
+| Supplier / contractor (the approved recipients) | `0xDf09…8B9c` / `0x2c23…57d0` |
+| Escrow template `relay-escrow 1.0` | bytecode hash `0xaa3756d7…0b`, deployed per task |
+
+### Setup (once; already done)
+
+1. `npm run chain:setup` deployed the token and vault through MultiBaas, uploaded the escrow template, seeded the
+   treasury history (including a 250 STD payment to an unapproved address) and wrote `org/chain.json`.
+2. `ADMIN_PRIVATE_KEY=0x… npm run org:seed` wrote the blockchain grants of `sodalabs.eth`, `dev` and `cloudops`.
+3. The server's `.env` holds `MULTIBAAS_URL`, `MULTIBAAS_API_KEY` and `MULTIBAAS_SIGNER_PRIVATE_KEY`. Check:
+   ```sh
+   curl -s https://relay.derek2403.win/api/relay/chain/status
+   ```
+   It shows `"configured":true`, the vault's balance and the signer's ETH.
+
+**Within 3 days of the demo:** MultiBaas's free plan keeps indexed events for 72 hours, so the monitoring step
+only sees recent history. Re-emit it (small transfers plus the flagged 250 STD one) the day before:
+```sh
+ADMIN_PRIVATE_KEY=0x… npm run chain:setup -- --reseed
+```
+
+### Before the demo
+
+1. Derek exists (Demo 1 steps 1 and 2). In **Add a member**, the **Blockchain (MultiBaas)** section is on by
+   default with what `cloudops` allows; leave it on.
+2. Derek's agent gets a narrower grant:
+   ```sh
+   relay login --chain-max 5 --chain-limit 20
+   ```
+   The output ends with `chain read, track, prepare, submit, deploy, manage · to 0xdf09…, 0x2c23… · 5 STD per tx,
+   20 STD per month · approval always`.
+3. In the portal, connect the admin wallet and open **Approvals** in a second tab.
+
+### The demo
+
+The agent's tasks run from the terminal (the agent's key is in `~/.relay`). Each prints the plan, what the relay
+did with every step, and a report. Approvals happen in the portal.
+
+1. **Monitor.**
+   ```sh
+   relay chain task "Review our treasury's recent transfers and flag unusually large outgoing payments."
+   ```
+   It lists the vault's outgoing transfers with the block range and flags the 250 STD payment twice: `[large]`
+   (over the 50 STD threshold) and `[unapproved-recipient]`, each with its Etherscan link. The report ends with
+   "A flag is a rule match, not proof of wrongdoing."
+2. **Prepare.**
+   ```sh
+   relay chain task "Prepare a payment of 3 test tokens to our approved supplier."
+   ```
+   → `prp_…  awaiting-approval  pay 3 STD to supplier (0xDf09…) from the vault`.
+3. **Approve.** In **Approvals**, open the proposal: network, relay signer, vault, `pay(supplier, 3 STD)`, gas, the
+   grant id. Click **Approve** and sign in the wallet. The message names the proposal, the amount, the recipient and
+   the proposal's digest: changing anything needs a new approval.
+4. **Execute and track.**
+   ```sh
+   relay chain task "Submit the approved payment and track it until confirmation."
+   relay chain status prp_…
+   ```
+   The relay checks everything again, reserves 3 STD at every level, signs with the relay signer and submits through
+   MultiBaas. The proposal goes **submitted → included → confirmed** (about 30 seconds) with the transaction link.
+   In **Approvals**, the proposal shows the allowance used at `sodalabs.eth`, `dev`, `cloudops`, `derek` and his agent.
+5. **Deploy.**
+   ```sh
+   relay chain task "Deploy our approved escrow template: 5 test tokens to the supplier, paid from the vault, with me (the agent's owner) as admin."
+   ```
+   The proposal names Derek's wallet as admin: the relay refuses its own signer or anyone outside the levels above.
+   Approve it in the portal, then `relay chain task "Submit the approved deployment."`. `relay chain status prp_…`
+   shows the escrow's address once confirmed; MultiBaas now indexes its events.
+6. **Manage.**
+   ```sh
+   relay chain task "Check whether the escrow is paused, and if it isn't, propose pausing it."
+   ```
+   The relay runs the read first (`paused` → `false`), then the model proposes `pause()`. Approve, then
+   `relay chain task "Submit the approved proposal."`, then
+   `relay chain task "Show the escrow's recent events."`: the `Paused` event is there.
+7. **Reject.** Each is refused before anything is signed, with the rule named (and listed in **Approvals** as
+   blocked):
+   ```sh
+   relay chain task "Pay 3 test tokens to 0x000000000000000000000000000000000000dEaD"   # [recipient]
+   relay chain task "Pay 500 test tokens to the supplier"                             # [amount] over 5 STD
+   relay chain task "Prepare a call to transferAdmin on the escrow, making 0x000000000000000000000000000000000000dEaD the admin."   # [method]
+   ```
+8. **Narrower subagent.**
+   ```sh
+   relay subagent create watch --chain read,track --minutes 30
+   relay chain task "Prepare a payment of 3 test tokens to our approved supplier." --as watch   # [cap:prepare]
+   relay chain task "Review our treasury's recent transfers." --as watch                     # works
+   ```
+9. **Revoke.** Remove Derek in **Access tree**. The next `relay chain task …` is refused with `access revoked`,
+   for the agent and its subagents. Transactions already confirmed stay confirmed.
+
+## Demo 5: Human approval with World ID
+
+When an agent asks for more than it was given, the relay suspends its authority until an authorized human reviews
+the incident and passes a Selfie Check with the World ID linked to their wallet. An agent's key alone can't approve
+its own recovery. World shows who is present at that moment; it doesn't judge the decision.
+
+### Once: link your World ID
+
+1. Install World App on your phone and set up your World ID.
+2. In the portal, connect the admin wallet, open **Approvals**, and under **Your approver identity** click
+   **Link World ID**. Sign the message in the wallet, then scan the QR code with World App and complete the Selfie
+   Check. The card then shows **World ID linked**. Only this World ID can approve for this wallet from now on.
+
+If World App answers `feature_unavailable` or `credential_unavailable`, Selfie Check isn't enabled for the app
+(`app_4eb1…`) yet: ask World to enable it, and show the reject path in step 5 meanwhile.
+
+### The demo (after Demo 4's "Before the demo")
+
+1. **A scheduled payout subagent**: 20 STD a month, to the supplier only.
+   ```sh
+   relay subagent create payout --chain read,track,prepare,submit --chain-to supplier --chain-max 5 --chain-limit 20 --days 30
+   ```
+2. **At renewal it asks for more**: a new recipient, 10× the limit, 90 days.
+   ```sh
+   relay subagent renew payout --chain-limit 200 --chain-to supplier,0x334eCd1113a34A2a65f810dD14a8373C0977A29d --days 90 --reason "monthly export needs a new archive destination"
+   ```
+   → `paused: payout.codex.derek… is under review (incident inc_…)`, with a portal link. Nothing is written to ENS.
+3. **It is paused, not just this request.**
+   ```sh
+   relay chain task "Prepare a payment of 2 test tokens to our approved supplier." --as payout
+   ```
+   → `paused: … under review`. Optionally the parent agent reports it (kept as unverified text):
+   `relay report payout "possible exfiltration: it asked for a new destination and 10x the allowance"`.
+4. **Review.** In **Approvals**, open the incident: the rules that matched in plain words (limit raised, new
+   recipient unknown to the workspace, much longer expiry), what would change (now vs asked for), the agent's own
+   text marked *unverified*, and the suggested responses.
+5. **Decide.** Choose **Approve narrower** (the supplier only, 5 STD, 1 hour), sign in the wallet, then scan the
+   QR code with World App and do the Selfie Check. The relay checks the wallet signature, that the proof comes from
+   the World ID linked to this wallet, that it is bound to this exact decision and unused, and that World's verifier
+   accepts it. The incident resolves and the subagent resumes with only that scope.
+   - **Reject** or **Revoke** need only the wallet: the subagent stays paused (revoke is permanent).
+   - Cancelling the Selfie Check, a failed check or a different person's World ID keeps it paused.
+6. **Only the approved scope.**
+   ```sh
+   relay chain task "Prepare a payment of 2 test tokens to our approved supplier." --as payout   # works, needs approval as usual
+   relay chain task "Prepare a payment of 2 test tokens to 0x334eCd1113a34A2a65f810dD14a8373C0977A29d" --as payout   # [recipient]
+   ```
+   After the hour, the subagent is refused again: `approved scope … ended`.
+
+**What to say about World:** the relay requests a fresh presence check, but World App reports it and the relay
+can't verify it, so the claim is "the same enrolled person, verified by World's servers, for this one decision",
+not proof of liveness. Selfie Check is not a uniqueness guarantee, and it doesn't judge whether the approval was wise.
 
 ## Build your own app
 
@@ -315,3 +462,11 @@ Every refusal is JSON, `{"error": "…", "reason": "…"}`, and names the level 
 | `502 relay unreachable` in the app | `RELAY_BASE_URL` is wrong, or the relay is down: check `curl -s https://relay.derek2403.win/api/relay/status` |
 | Codex prints "failed to refresh available models" | Harmless. It carries on |
 | Plain `codex` still uses the relay after the demo | Run `relay logout`, which restores your own Codex config |
+| `blocked [cap:…]`, `[recipient]`, `[amount]`, `[method]`, `[ctor]`, `[gas]` | The relay's check did its job: the named rule isn't in the agent's grant. Widen it with `relay login` flags (or the Blockchain section in **Edit permissions**) only if you mean it |
+| `paused: … is under review (incident inc_…)` | An approver must decide in **Approvals** (Demo 5). Reject and revoke keep it paused |
+| `not_enrolled` when approving narrower | Link your World ID first: **Approvals → Your approver identity → Link World ID** |
+| World App says `feature_unavailable` / `credential_unavailable` | Selfie Check isn't enabled for the World app yet. Ask World to enable it; meanwhile show Reject/Revoke |
+| `world_rejected:…` or `wrong_person` | The proof failed at World's verifier, or it came from a different World ID than the one linked: the agent stays paused. Try again with the linked phone |
+| Monitoring finds no transfers | MultiBaas keeps events 72 hours on the free plan: `ADMIN_PRIVATE_KEY=0x… npm run chain:setup -- --reseed` |
+| A payment fails on chain (`reverted`) | The vault's own limits refused it (10 STD per payment, 100 per 30 days) or it ran out of STD; check `relay chain status`, top the vault up with `npm run chain:setup` |
+| The relay signer runs out of Sepolia ETH | `curl -s https://relay.derek2403.win/api/relay/chain/status` shows its balance; send it a little from the funder |
