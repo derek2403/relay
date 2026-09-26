@@ -101,10 +101,13 @@ export const envRpc = () => process.env.RELAY_RPC_URL?.trim() || process.env.NEX
 
 export type Chain = { pub: PublicClient; rpc: string; local: boolean };
 
-export async function connect(rpc: string): Promise<Chain> {
+/** Transport settings a script may override (org-seed retries longer and counts rate limits). */
+export type ConnectOptions = { retryCount?: number; retryDelay?: number; onFetchResponse?: (response: Response) => void };
+
+export async function connect(rpc: string, options: ConnectOptions = {}): Promise<Chain> {
   const pub = createPublicClient({
     chain: sepolia,
-    transport: http(rpc, { timeout: 30_000, retryCount: 4 }),
+    transport: http(rpc, { timeout: 30_000, retryCount: 4, ...options }),
     batch: { multicall: { wait: 10 } },
   }) as PublicClient;
   let chainId: number;

@@ -13,6 +13,7 @@
     "demo:e2e": "tsx scripts/demo-e2e.ts",
     "relay": "tsx scripts/relay.ts",
     "org:setup": "tsx scripts/org-setup.ts",
+    "org:seed": "tsx scripts/org-seed.ts",
     "demo:reset": "tsx scripts/demo-reset.ts"
   },
   "dependencies": {

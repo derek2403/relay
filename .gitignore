@@ -51,6 +51,9 @@ next-env.d.ts
 # agent keys made by `npm run agent -- new`
 /.keyless/
 
+# keys exported by `npm run org:seed -- --export-keys org/<label>.keys.json`
+/org/*.keys.json
+
 # foundry build output
 /contracts/out/
 /contracts/cache/

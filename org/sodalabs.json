@@ -1,0 +1,197 @@
+{
+  "$comment": "Made by npm run org:seed. Edit labels, bundles (relay.* records) and days freely, then run npm run org:seed again: it only sends what is missing. npm run demo:reset keeps every name listed here. Docs: docs/org-seed.md",
+  "version": 1,
+  "label": "sodalabs",
+  "seed": "sodalabs",
+  "root": {
+    "days": 365,
+    "bundle": {"keys": ["claude", "codex", "openai-images", "gemini", "github", "railway", "vercel", "linear", "canva", "hubspot", "mailchimp", "stripe", "notion", "slack", "mock"], "caps": {"claude": 1000, "codex": 2000, "gemini": 300}, "maxes": {"openai-images": 1000, "stripe": 10000}, "period": "month"}
+  },
+  "departments": [
+    {
+      "label": "dev",
+      "days": 365,
+      "bundle": {"keys": ["codex", "claude", "github", "railway", "vercel", "linear"], "caps": {"codex": 1000, "claude": 600}, "period": "month"},
+      "teams": [
+        {
+          "label": "cloudops",
+          "days": 365,
+          "bundle": {"keys": ["codex", "claude", "github", "railway", "vercel"], "caps": {"codex": 400, "claude": 250}, "period": "month"},
+          "employees": [
+            {
+              "label": "emma",
+              "days": 365,
+              "bundle": {"keys": ["codex", "claude", "github", "vercel"], "caps": {"codex": 100, "claude": 50}, "period": "month"},
+              "agents": [
+                {
+                  "label": "orbit",
+                  "days": 30,
+                  "bundle": {"keys": ["codex"], "caps": {"codex": 25}, "period": "total"},
+                  "subagents": [
+                    {
+                      "label": "tests",
+                      "days": 30,
+                      "bundle": {"keys": ["codex"], "caps": {"codex": 8}, "period": "total"}
+                    },
+                    {
+                      "label": "research",
+                      "days": 30,
+                      "bundle": {"keys": ["codex"], "caps": {"codex": 10}, "period": "total"}
+                    },
+                    {
+                      "label": "lint",
+                      "days": 30,
+                      "bundle": {"keys": ["codex"], "caps": {"codex": 10}, "period": "total"}
+                    }
+                  ]
+                },
+                {
+                  "label": "atlas",
+                  "days": 30,
+                  "bundle": {"keys": ["codex", "vercel"], "caps": {"codex": 25}, "period": "total"},
+                  "subagents": [
+                    {
+                      "label": "docs",
+                      "days": 30,
+                      "bundle": {"keys": ["codex"], "caps": {"codex": 6}, "period": "total"}
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "priya",
+              "days": 365,
+              "bundle": {"keys": ["codex", "claude", "github", "vercel"], "caps": {"codex": 60, "claude": 40}, "period": "month"},
+              "agents": []
+            }
+          ]
+        },
+        {
+          "label": "mobile",
+          "days": 365,
+          "bundle": {"keys": ["codex", "github", "railway", "linear"], "caps": {"codex": 400}, "period": "month"},
+          "employees": [
+            {
+              "label": "nina",
+              "days": 365,
+              "bundle": {"keys": ["codex", "github", "railway"], "caps": {"codex": 100}, "period": "month"},
+              "agents": [
+                {
+                  "label": "rook",
+                  "days": 30,
+                  "bundle": {"keys": ["codex", "railway"], "caps": {"codex": 25}, "period": "total"},
+                  "subagents": [
+                    {
+                      "label": "research",
+                      "days": 30,
+                      "bundle": {"keys": ["codex"], "caps": {"codex": 10}, "period": "total"}
+                    },
+                    {
+                      "label": "triage",
+                      "days": 30,
+                      "bundle": {"keys": ["codex"], "caps": {"codex": 6}, "period": "total"}
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "biz",
+      "days": 365,
+      "bundle": {"keys": ["stripe", "notion", "slack", "hubspot", "codex"], "caps": {"codex": 200}, "maxes": {"stripe": 5000}, "period": "month"},
+      "teams": [
+        {
+          "label": "finance",
+          "days": 365,
+          "bundle": {"keys": ["notion", "slack", "codex"], "caps": {"codex": 100}, "period": "month"},
+          "employees": [
+            {
+              "label": "arjun",
+              "days": 365,
+              "bundle": {"keys": ["notion", "slack", "codex"], "caps": {"codex": 30}, "period": "month"},
+              "agents": [
+                {
+                  "label": "codex",
+                  "days": 30,
+                  "bundle": {"keys": ["codex"], "caps": {"codex": 6}, "period": "total"},
+                  "subagents": [
+                    {
+                      "label": "summary",
+                      "days": 30,
+                      "bundle": {"keys": ["codex"], "caps": {"codex": 1.5}, "period": "total"}
+                    },
+                    {
+                      "label": "triage",
+                      "days": 30,
+                      "bundle": {"keys": ["codex"], "caps": {"codex": 2}, "period": "total"}
+                    },
+                    {
+                      "label": "outreach",
+                      "days": 30,
+                      "bundle": {"keys": ["codex"], "caps": {"codex": 2.5}, "period": "total"}
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "mkt",
+      "days": 365,
+      "bundle": {"keys": ["canva", "hubspot", "mailchimp", "gemini", "openai-images", "codex"], "caps": {"codex": 300, "gemini": 150}, "maxes": {"openai-images": 500}, "period": "month"},
+      "teams": [
+        {
+          "label": "events",
+          "days": 365,
+          "bundle": {"keys": ["canva", "hubspot", "mailchimp", "gemini", "openai-images", "codex"], "caps": {"gemini": 60, "codex": 150}, "maxes": {"openai-images": 250}, "period": "month"},
+          "employees": [
+            {
+              "label": "tara",
+              "days": 365,
+              "bundle": {"keys": ["canva", "hubspot", "gemini", "openai-images", "codex"], "caps": {"gemini": 10, "codex": 25}, "maxes": {"openai-images": 60}, "period": "month"},
+              "agents": [
+                {
+                  "label": "codex",
+                  "days": 30,
+                  "bundle": {"keys": ["openai-images", "codex"], "caps": {"codex": 4}, "maxes": {"openai-images": 10}, "period": "total"},
+                  "subagents": [
+                    {
+                      "label": "image",
+                      "days": 30,
+                      "bundle": {"keys": ["openai-images"], "caps": {}, "maxes": {"openai-images": 4}, "period": "total"}
+                    },
+                    {
+                      "label": "copy",
+                      "days": 30,
+                      "bundle": {"keys": ["codex"], "caps": {"codex": 0.8}, "period": "total"}
+                    }
+                  ]
+                },
+                {
+                  "label": "onyx",
+                  "days": 30,
+                  "bundle": {"keys": ["canva", "gemini"], "caps": {"gemini": 2.5}, "period": "total"},
+                  "subagents": [
+                    {
+                      "label": "docs",
+                      "days": 30,
+                      "bundle": {"keys": ["gemini"], "caps": {"gemini": 0.5}, "period": "total"}
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

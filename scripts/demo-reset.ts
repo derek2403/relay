@@ -1,7 +1,9 @@
 // npm run demo:reset: undoes a demo run. Removes (unregisters) every name the demo added under
-// the teams, keeping what org-setup made (the launch squad, its alias and mia), asks the relay to
-// clear spend for names that no longer exist, deletes RELAY_HOME (the CLI's keys) and deletes what
-// Codex made in demo-workspace/ (everything but relay, AGENTS.md and .agents/).
+// the teams, keeping what org-setup made (the launch squad, its alias and mia) and, when
+// org/<org>.json exists (npm run org:seed), every seeded employee (and so their agents and
+// subagents), asks the relay to clear spend for names that no longer exist, deletes RELAY_HOME
+// (the CLI's keys) and deletes what Codex made in demo-workspace/ (everything but relay,
+// AGENTS.md and .agents/).
 // The company, departments and teams stay. A removed label can be added again: a re-registered
 // name gets a new resource, so it starts with no spend.
 //
@@ -39,6 +41,7 @@ import {
   tx,
   walkName,
 } from "./lib/ensv2";
+import { loadSeedSpec, resetSweep } from "./lib/org-seed";
 
 /** What `./relay codex` keeps in demo-workspace/ (the same list .gitignore keeps). */
 const WORKSPACE_KEEP = new Set(["relay", "AGENTS.md", ".agents"]);
@@ -82,15 +85,20 @@ async function main() {
   const reader = createChainReader(s.rpc);
 
   // The team registries (and the launch squad's): the ones actually attached, which org-setup may have
-  // kept from the portal instead of deploying its own.
-  const sweep = [...plan.teams.map((t) => t.name), plan.launch];
+  // kept from the portal instead of deploying its own. A seeded company (org/<org>.json from
+  // npm run org:seed) adds its teams, keeping the employees it lists; org-setup's teams are then
+  // optional (skipped quietly when that tree isn't there).
+  const spec = loadSeedSpec(s.org);
+  const sweep = resetSweep(plan, spec);
   const targets: { parent: string; child: ChildView; registry: Address }[] = [];
-  say("\nLooking for names added during demos");
-  for (const parent of sweep) {
+  say(`\nLooking for names added during demos${spec ? ` (keeping the seeded names in org/${s.org}.json)` : ""}`);
+  let notSetUp = 0;
+  for (const { parent, keep, source, optional } of sweep) {
     const { levels, broken } = await walkName(pub, parent);
     const registry = broken ? null : (levels.at(-1)?.entry?.subregistry ?? null);
     if (!registry || !(await hasCode(pub, registry))) {
-      say(`  - ${parent}: no registry (run npm run org:setup)`);
+      if (optional) notSetUp++;
+      else say(`  - ${parent}: no registry (run npm run ${source === "org-seed" ? "org:seed" : "org:setup"})`);
       continue;
     }
     if (!(await hasRootRoles(pub, registry, RegistryRoles.ROLE_UNREGISTER, admin.address))) {
@@ -106,12 +114,12 @@ async function main() {
         if (!isScanLimitError(err) || !err.retryable || attempt >= 5) throw new UserError(`Could not list the names under ${parent}: ${shortError(err)}`);
       }
     }
-    const keep = plan.keep.get(parent) ?? new Set<string>();
     const remove = children.filter((c) => c.status === "registered" && !keep.has(c.label));
     for (const c of remove) targets.push({ parent, child: c, registry });
     const kept = children.filter((c) => c.status === "registered" && keep.has(c.label)).map((c) => c.label);
     say(`  ${parent}: ${remove.length ? remove.map((c) => c.label).join(", ") : "nothing to remove"}${kept.length ? ` (keeping ${kept.join(", ")})` : ""}`);
   }
+  if (notSetUp) say(`  - org-setup's teams and launch squad aren't set up under ${plan.root} (${notSetUp} skipped); the seeded teams were checked`);
 
   if (targets.length) {
     say("\nRemoving");
