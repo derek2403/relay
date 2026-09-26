@@ -1,0 +1,16 @@
+.git
+.next
+node_modules
+.env*
+!.env.example
+.data
+.keyless
+.scratch
+public/cli
+demo-workspace
+contracts
+docs
+compose.yaml
+deploy
+*.log
+.DS_Store
