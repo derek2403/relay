@@ -55,7 +55,7 @@
   const $ = (id) => document.getElementById(id);
   const TOOLS = {
     llm: { color: "var(--llm)", route: "POST /openai/chat/completions" },
-    get_weather: { color: "var(--weather)", route: "GET /weather/forecast" },
+    get_weather: { color: "var(--weather)", route: "GET /weather/data/2.5/weather" },
     generate_image: { color: "var(--image)", route: "POST /openai/images/generations" },
   };
   let relay = "";
@@ -103,9 +103,12 @@
         $("figure").hidden = false;
       }
     } else if (ev.type === "refused") {
-      Object.assign(rows[ev.id], { className: "detail bad", textContent: `✗ refused by the relay: ${ev.status} ${ev.error}: ${ev.reason}` });
+      const by = ev.error === "provider error" ? "" : "refused by the relay: "; // e.g. OpenWeatherMap's 401 "Invalid API key"
+      Object.assign(rows[ev.id], { className: "detail bad", textContent: `✗ ${by}${ev.status} ${ev.error}: ${ev.reason}` });
     } else if (ev.type === "answer") {
-      $("answer").textContent = ev.text ?? "";
+      // Plain text with **bold**, never HTML from the model.
+      const safe = (ev.text ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+      $("answer").innerHTML = safe.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
       $("answer").hidden = false;
     } else if (ev.type === "error") {
       const box = $("error");

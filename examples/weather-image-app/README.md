@@ -3,16 +3,17 @@
 A small OpenAI-style app: you type *"Get the weather of Tokyo today and generate an image based on it"*,
 the LLM calls a weather tool and an image tool, and the page shows each call as it happens, then the
 image and the answer. All three APIs go through Keyless Relay with **one PAT**, a token for your ENS
-name. The app never holds an OpenAI key.
+name. The app never holds an OpenAI or OpenWeatherMap key: both live on the relay.
 
 | Call | Relay URL |
 |---|---|
 | LLM (Chat Completions, tool calling) | `POST $RELAY_BASE_URL/openai/chat/completions` |
-| Weather (Open-Meteo) | `GET $RELAY_BASE_URL/weather/forecast?latitude=…&longitude=…&current=…` |
+| Weather (OpenWeatherMap) | `GET $RELAY_BASE_URL/weather/data/2.5/weather?q=Tokyo&units=metric` (the relay adds `appid`) |
 | Image (OpenAI Images) | `POST $RELAY_BASE_URL/openai/images/generations` |
 
 No dependencies: Node.js 20 or newer. You need the `relay` CLI with a key that owns your ENS name
-(`relay init`, then your admin adds you).
+(`relay init`, then your admin adds you). The relay needs `OPENWEATHER_API_KEY`: in its `.env`, or set by the
+root owner on the Providers page (**Weather (OpenWeatherMap)** → **Edit credentials**).
 
 ## Run it
 
@@ -52,5 +53,8 @@ reason in red. For example:
 - `401 token expired`: the PAT is too old. Run the curl again.
 - `403 denied · … has used its openai-images limit (3 images)`: you reached the image cap.
 - `403 access revoked · … was removed or expired`: your admin removed your name.
+- `503 provider not configured · The relay has no weather key (OPENWEATHER_API_KEY)`: set the key on the relay.
+- `401 provider error: Invalid API key`: OpenWeatherMap doesn't accept the relay's key yet. A new key can take
+  up to about 2 hours to activate.
 
 A refused tool call is also passed to the model, so its answer says what went wrong.

@@ -9,7 +9,7 @@ The relay and the ENS code are ported from `ethtokyo2026` (Keyless Relay). The d
 [docs/demo.md](docs/demo.md).
 
 **Presenting?** [DEMO.md](DEMO.md) is the runbook for the two stage demos: Codex with an ENS identity, and one PAT
-for LLM + weather + images ([examples/weather-image-app](examples/weather-image-app)).
+for LLM + weather (OpenWeatherMap) + images ([examples/weather-image-app](examples/weather-image-app)).
 
 ## Run
 
@@ -30,7 +30,7 @@ The settings that matter first (all in `.env.example`):
 | `RELAY_ROOT_NAME` | The company's `.eth` name, e.g. `acme.eth`. Without it the portal lets you type a name to set up, but the relay refuses calls. |
 | `RELAY_ROOT_OWNER` | The wallet that owns it (`npm run org:setup` prints both lines). |
 | `RELAY_PUBLIC_URL` | `http://127.0.0.1:3000` locally: the base URL agents use and the audience of their tokens. |
-| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, … | Provider keys. The root owner can also set them from the Providers view (needs `RELAY_SECRET`). |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENWEATHER_API_KEY`, … | Provider keys. The root owner can also set them from the Providers view (needs `RELAY_SECRET`). Weather is OpenWeatherMap: the relay adds `OPENWEATHER_API_KEY` to each call as `?appid=`, so apps never see it. |
 | `RELAY_SECRET` | `openssl rand -hex 32`. Encrypts keys saved in the portal and signs the owner's session. |
 | `RELAY_ADMIN_TOKEN` | Protects spend, the decision log and resets; sign in at `/api/relay/admin`. |
 | `FUNDER_PRIVATE_KEY` | Optional hot wallet that sends new members gas. |

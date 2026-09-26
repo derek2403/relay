@@ -5,7 +5,7 @@ Two stage demos on **https://relay.derek2403.win**, with the company `sodalabs.e
 1. **Codex with an ENS identity.** Derek gets a name instead of an API key. Codex runs as its own name, makes
    subagents, hits its budget, and stops within seconds when Derek is removed.
 2. **One PAT for LLM + weather + images.** One `curl` puts a token for Derek's ENS name into an app's `.env`.
-   A small OpenAI-style web app then uses the LLM, a weather API and image generation with that one token.
+   A small OpenAI-style web app then uses the LLM, OpenWeatherMap and image generation with that one token.
 
 | Name | What it is |
 |---|---|
@@ -47,7 +47,16 @@ Two stage demos on **https://relay.derek2403.win**, with the company `sodalabs.e
    backstop, set a monthly limit in the OpenAI dashboard. The relay's caps bound each run: Derek gets $2 of
    Codex, 3 images and 20 weather calls. The relay stops a run at about $2.20 of estimated spend, and a run
    usually uses much less. The relay's dollar figures are estimates: it prices `gpt-5.3-codex` and
-   `gpt-5.4-mini` at GPT-5 rates, and images at $0.04 each. Weather (Open-Meteo) is free.
+   `gpt-5.4-mini` at GPT-5 rates, and images at $0.04 each. Weather (OpenWeatherMap) calls are counted, not
+   priced: OpenWeatherMap's free plan covers the demo.
+7. **OpenWeatherMap key:** the relay needs `OPENWEATHER_API_KEY` (from https://home.openweathermap.org/api_keys).
+   Put it in the server's `.env`, or open the **Providers** page (signed in as the root owner or admin) and use
+   **Edit credentials** on **Weather (OpenWeatherMap)**. The key lives only on the relay: the relay adds it to each
+   call as `?appid=`, and apps and agents never see it. Check it:
+   ```sh
+   curl -s https://relay.derek2403.win/api/relay/status | grep -o '"id":"weather"[^}]*"configured":[a-z]*'
+   ```
+   It ends in `"configured":true`. A new key can take up to about 2 hours to activate at OpenWeatherMap.
 
 ## Before each demo
 
@@ -72,7 +81,7 @@ open a terminal.
 2. **"My admin adds me."** In the portal, go to **Access tree**, select `cloudops.dev.sodalabs.eth`, and click
    **Add a member**:
    - ENS label `derek`, and paste the address as **Owner wallet**
-   - tick **OpenAI text (Codex)** `$2`, **OpenAI Images** `3` and **Weather (Open-Meteo)** `20`
+   - tick **OpenAI text (Codex)** `$2`, **OpenAI Images** `3` and **Weather (OpenWeatherMap)** `20`
 
    Click **Add derek.cloudops.dev.sodalabs.eth** and confirm the 2 wallet prompts. The funder then tops up
    Derek's gas automatically. The editor only offers what cloudops itself allows.
@@ -129,9 +138,10 @@ command: then skip `relay init` and paste the address `relay whoami` shows.
    Optional check, which costs no model spend:
    ```sh
    set -a; . ./.env; set +a
-   curl -s "$RELAY_BASE_URL/weather/forecast?latitude=35.68&longitude=139.69&current=temperature_2m" -H "Authorization: Bearer $RELAY_API_KEY"
+   curl -s "$RELAY_BASE_URL/weather/data/2.5/weather?q=Tokyo&units=metric" -H "Authorization: Bearer $RELAY_API_KEY"
    ```
-   It prints Tokyo's temperature. `does not allow weather` means setup step 3 hasn't run.
+   It prints OpenWeatherMap's JSON for Tokyo (`"main":{"temp":…}`). `does not allow weather` means setup step 3
+   hasn't run; `no weather key (OPENWEATHER_API_KEY)` means setup step 7 hasn't.
 2. **Start the app:**
    ```sh
    node server.mjs
@@ -139,11 +149,12 @@ command: then skip `relay init` and paste the address `relay whoami` shows.
    It prints `http://localhost:5173  ·  PAT for derek.cloudops.dev.sodalabs.eth via https://relay.derek2403.win/v1`.
 3. Open **http://localhost:5173** and click **Ask**. The prompt is already filled in: *Get the weather of Tokyo
    today and generate an image based on it*. The page adds a row for each call as it happens:
-   **LLM**, **get_weather** (Tokyo's temperature, feels-like, conditions, wind and rain), **LLM**,
+   **LLM**, **get_weather** (for example `Tokyo: 17.8 °C (feels 19.9 °C), broken clouds, humidity 70 %, wind 3.1 m/s`), **LLM**,
    **generate_image**, then the image and the answer.
 4. **"Three APIs, one PAT, no provider key in the app."** In the portal, select `derek`. The Live view lists
-   the calls, all made as `derek.cloudops.dev.sodalabs.eth`: `codex` (chat completions), `weather` and
-   `openai-images`. Spend and counts rise on Derek, cloudops, dev and sodalabs.eth.
+   the calls, all made as `derek.cloudops.dev.sodalabs.eth`: `codex` (chat completions), `weather`
+   (OpenWeatherMap) and `openai-images`. Spend and counts rise on Derek, cloudops, dev and sodalabs.eth. The
+   app's `.env` holds only the PAT: the OpenAI and OpenWeatherMap keys stay on the relay.
 5. **Optional, the image cap:** click **Ask** again until the **generate_image** row turns red:
    `403 denied: derek.cloudops.dev.sodalabs.eth has used its openai-images limit (3 images)`. The model's answer
    explains why. If you kept Derek from Demo 1, the images Codex made there count toward the 3.
@@ -171,7 +182,7 @@ OPENAI_API_KEY=kr1…
 | Base URL | API |
 |---|---|
 | `…/v1/openai` | OpenAI: chat completions, responses, embeddings, models; images at `…/v1/openai/images/generations` |
-| `…/v1/weather` | Open-Meteo: `/forecast?latitude=…&longitude=…&current=…` (GET only) |
+| `…/v1/weather` | OpenWeatherMap, same paths: `/data/2.5/weather?q=Tokyo&units=metric`, `/data/2.5/forecast`, `/geo/1.0/direct` (GET only; the relay adds `appid`) |
 | `…/v1/anthropic` | Anthropic Messages |
 | `…/v1/<api>` | Any other API in the catalog |
 
@@ -186,17 +197,18 @@ console.log(chat.choices[0].message.content);
 const image = await openai.images.generate({ model: "gpt-image-1-mini", prompt: "Tokyo at dusk, light rain", size: "1024x1024" });
 console.log(image.data[0].b64_json.length, "characters of base64 PNG");
 
-const weather = await fetch(`${process.env.RELAY_BASE_URL}/weather/forecast?latitude=35.68&longitude=139.69&current=temperature_2m,weather_code`, {
-  headers: { Authorization: `Bearer ${process.env.RELAY_API_KEY}` },
+const weather = await fetch(`${process.env.RELAY_BASE_URL}/weather/data/2.5/weather?q=Tokyo&units=metric`, {
+  headers: { Authorization: `Bearer ${process.env.RELAY_API_KEY}` }, // no appid: the relay adds its key
 });
-console.log((await weather.json()).current);
+const w = await weather.json();
+console.log(w.name, w.main.temp, "°C,", w.weather[0].description);
 ```
 
 A quick check from the shell costs no model spend:
 
 ```sh
 set -a; . ./.env; set +a
-curl -s "$RELAY_BASE_URL/weather/forecast?latitude=35.68&longitude=139.69&current=temperature_2m" -H "Authorization: Bearer $RELAY_API_KEY"
+curl -s "$RELAY_BASE_URL/weather/data/2.5/weather?q=Tokyo&units=metric" -H "Authorization: Bearer $RELAY_API_KEY"
 ```
 
 Every refusal is JSON, `{"error": "…", "reason": "…"}`, and names the level that said no.
@@ -215,7 +227,9 @@ Every refusal is JSON, `{"error": "…", "reason": "…"}`, and names the level 
 | `403 … has used its codex cap ($0.3)` / `its openai-images limit (3 images)` | The cap did its job. Raise it with **Change a cap** or **Edit permissions** in the portal, or reset |
 | `403 access revoked` | Derek, or a level above him, was removed. Add him again and re-run the curl |
 | `403 the relay doesn't forward …` | Wrong method or path: weather is GET only, and OpenAI text only allows the priced endpoints |
-| `503 provider not configured` | The relay has no `OPENAI_API_KEY`. Set it in the server's `.env` or in the Providers view |
+| `503 provider not configured` naming `OPENAI_API_KEY` | The relay has no OpenAI key. Set it in the server's `.env` or in the Providers view |
+| `503 … no weather key (OPENWEATHER_API_KEY)` | Set `OPENWEATHER_API_KEY` in the server's `.env`, or on the Providers page (**Weather (OpenWeatherMap)** → **Edit credentials**) |
+| `401` from OpenWeatherMap, `Invalid API key` | The relay's OpenWeatherMap key isn't active yet: a new key takes up to about 2 hours. Or it was mistyped: set it again on the Providers page |
 | `400 provider error` naming the model | The key can't use that model. Set `CHAT_MODEL=` or `IMAGE_MODEL=` in the app's `.env` (for example `IMAGE_MODEL=dall-e-3` if your org isn't verified for gpt-image). No restart needed |
 | `502 relay unreachable` in the app | `RELAY_BASE_URL` is wrong, or the relay is down: check `curl -s https://relay.derek2403.win/api/relay/status` |
 | Codex prints "failed to refresh available models" | Harmless. It carries on |

@@ -2,9 +2,10 @@
 //
 // One PAT (a kr1 token for your ENS name, from the relay's /pat curl) pays for all three APIs:
 //   the LLM     POST ${RELAY_BASE_URL}/openai/chat/completions     (OpenAI Chat Completions, tool calling)
-//   weather     GET  ${RELAY_BASE_URL}/weather/forecast?…          (Open-Meteo)
+//   weather     GET  ${RELAY_BASE_URL}/weather/data/2.5/weather?q=… (OpenWeatherMap)
 //   the image   POST ${RELAY_BASE_URL}/openai/images/generations   (OpenAI Images)
-// The relay checks your ENS name's limits on every call and attaches the real keys; this app never sees one.
+// The relay checks your ENS name's limits on every call and attaches the real keys (OpenAI's, and
+// OpenWeatherMap's ?appid=); this app never sees one.
 //
 // No dependencies (Node 20+): node server.mjs, then open http://localhost:5173
 
@@ -59,8 +60,9 @@ async function relay(cfg, route, body) {
     data = { error: text.slice(0, 300) };
   }
   if (!res.ok) {
-    // The relay answers { error, reason }; OpenAI's own errors come through as { error: { message } }.
-    const upstream = typeof data.error === "object" ? data.error?.message : null;
+    // The relay answers { error, reason }. Provider errors pass through: OpenAI's { error: { message } },
+    // OpenWeatherMap's { cod, message } (e.g. 401 "Invalid API key", 404 "city not found").
+    const upstream = typeof data.error === "object" ? data.error?.message : data.error ? null : data.message;
     throw refusal(res.status, upstream ? "provider error" : String(data.error || res.statusText), data.reason || upstream || text.slice(0, 300));
   }
   return data;
@@ -73,11 +75,11 @@ const TOOLS = [
     type: "function",
     function: {
       name: "get_weather",
-      description: "Current weather for a city, by its coordinates.",
+      description: "Current weather for a city.",
       parameters: {
         type: "object",
-        properties: { city: { type: "string" }, latitude: { type: "number" }, longitude: { type: "number" } },
-        required: ["city", "latitude", "longitude"],
+        properties: { city: { type: "string", description: 'City name, optionally with a country code: "Tokyo" or "London,GB"' } },
+        required: ["city"],
         additionalProperties: false,
       },
       strict: true,
@@ -99,29 +101,20 @@ const TOOLS = [
   },
 ];
 
-// WMO weather codes (Open-Meteo's weather_code).
-const WMO = {
-  0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast", 45: "fog", 48: "freezing fog",
-  51: "light drizzle", 53: "drizzle", 55: "dense drizzle", 56: "freezing drizzle", 57: "freezing drizzle",
-  61: "light rain", 63: "rain", 65: "heavy rain", 66: "freezing rain", 67: "freezing rain",
-  71: "light snow", 73: "snow", 75: "heavy snow", 77: "snow grains", 80: "light showers", 81: "showers",
-  82: "violent showers", 85: "snow showers", 86: "heavy snow showers", 95: "thunderstorm", 96: "thunderstorm with hail", 99: "thunderstorm with hail",
-};
-
-async function getWeather(cfg, { city, latitude, longitude }) {
-  const current = "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation";
-  const q = new URLSearchParams({ latitude, longitude, current, timezone: "auto" });
-  const { current: c, current_units: u } = await relay(cfg, `/weather/forecast?${q}`);
+// OpenWeatherMap's current weather, in °C (units=metric). The relay adds the key.
+async function getWeather(cfg, { city }) {
+  const w = await relay(cfg, `/weather/data/2.5/weather?${new URLSearchParams({ q: city, units: "metric" })}`);
   const weather = {
-    city,
-    local_time: c.time,
-    conditions: WMO[c.weather_code] ?? `weather code ${c.weather_code}`,
-    temperature: `${c.temperature_2m} ${u.temperature_2m}`,
-    feels_like: `${c.apparent_temperature} ${u.apparent_temperature}`,
-    wind: `${c.wind_speed_10m} ${u.wind_speed_10m}`,
-    precipitation: `${c.precipitation} ${u.precipitation}`,
+    city: w.name || city,
+    local_time: new Date((w.dt + w.timezone) * 1000).toISOString().slice(11, 16), // dt and timezone are in seconds
+    conditions: w.weather?.[0]?.description ?? "unknown",
+    temperature: `${w.main.temp} °C`,
+    feels_like: `${w.main.feels_like} °C`,
+    humidity: `${w.main.humidity} %`,
+    wind: `${w.wind.speed} m/s`,
+    clouds: `${w.clouds.all} %`,
   };
-  const summary = `${city}: ${weather.temperature} (feels ${weather.feels_like}), ${weather.conditions}, wind ${weather.wind}, precipitation ${weather.precipitation}`;
+  const summary = `${weather.city}: ${weather.temperature} (feels ${weather.feels_like}), ${weather.conditions}, humidity ${weather.humidity}, wind ${weather.wind}`;
   return { forModel: weather, summary };
 }
 
@@ -135,7 +128,7 @@ async function generateImage(cfg, { prompt }) {
 // --- The tool loop -----------------------------------------------------------------------------
 
 const SYSTEM =
-  "You are a concise assistant. For weather, call get_weather with the city's coordinates. " +
+  "You are a concise assistant. For weather, call get_weather with the city's name. " +
   "For an image, first get the real weather, then call generate_image with a vivid prompt that shows it " +
   "(conditions, temperature, time of day, the city's landmarks). Finish with two or three sentences that quote the numbers.";
 
