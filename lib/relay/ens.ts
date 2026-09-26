@@ -32,7 +32,7 @@ import { ENSV2_SEPOLIA } from "../ens/deployments";
 import { PERMISSIONED_RESOLVER_IMPL, USER_REGISTRY_IMPL, VERIFIABLE_FACTORY, verifiableFactoryAbi } from "../ens/factory";
 import { ROOT_REGISTRY } from "../ens/hierarchy";
 import { dnsEncode, labelId, namehash, splitLabels } from "../ens/names";
-import { type Bundle, RECORD_PREFIX, bundleRecordKeys, parseBundle } from "./bundle";
+import { type Bundle, RECORD_KEYS, RECORD_PREFIX, bundleRecordKeys, parseBundle, parseChainRecord } from "./bundle";
 import type { ChildView, ChildrenResponse, LevelStatus, LevelView } from "./types";
 
 /** A level as read from the chain (LevelView minus spend, which the meter adds). */
@@ -180,7 +180,7 @@ const canonicalCall = (registry: Address): Call<Hex> => ({
  */
 export const TOKEN_NBF_KEY = `${RECORD_PREFIX}.nbf`;
 
-type NameRecords = { bundle: Bundle | null; nbf: number | null };
+type NameRecords = { bundle: Bundle | null; nbf: number | null; chain: string | null };
 
 const parseNbf = (raw: string | null | undefined) => {
   const n = Number((raw ?? "").trim());
@@ -188,13 +188,13 @@ const parseNbf = (raw: string | null | undefined) => {
 };
 
 /**
- * One call that returns a whole bundle (plus the token nbf record):
+ * One call that returns a whole bundle (plus the token nbf and blockchain grant records):
  * PermissionedResolver.resolve() accepts multicall(text(node, key)...) and
  * answers with abi.encode(bytes[]), each entry an abi-encoded string (or
  * revert data for a failed sub-call).
  */
 function bundleCall(resolver: Address, name: string): Call<NameRecords> {
-  const keys = [...bundleRecordKeys(), TOKEN_NBF_KEY];
+  const keys = [...bundleRecordKeys(), TOKEN_NBF_KEY, RECORD_KEYS.chain];
   const node = namehash(name);
   const inner = keys.map((key) => encodeFunctionData({ abi: resolverAbi, functionName: "text", args: [node, key] }));
   return {
@@ -215,7 +215,7 @@ function bundleCall(resolver: Address, name: string): Call<NameRecords> {
           texts[key] = null;
         }
       });
-      return { bundle: parseBundle(texts), nbf: parseNbf(texts[TOKEN_NBF_KEY]) };
+      return { bundle: parseBundle(texts), nbf: parseNbf(texts[TOKEN_NBF_KEY]), chain: parseChainRecord(texts[RECORD_KEYS.chain]) };
     },
   };
 }
@@ -405,6 +405,7 @@ export class ViemChainReader implements TreeReader {
           resource: state ? state.resource.toString() : null,
           bundle: records.get(li)?.bundle ?? null,
           nbf: records.get(li)?.nbf ?? null,
+          chain: records.get(li)?.chain ?? null,
           checks: levelChecks[li],
         };
       });
@@ -450,8 +451,8 @@ export class ViemChainReader implements TreeReader {
       });
       const withResolver = partial.filter((c) => c.resolver);
       const bundles = await aggregate(this.client, withResolver.map((c) => bundleCall(c.resolver!, c.name)));
-      const bundleOf = new Map(withResolver.map((c, i) => [c.label, bundles[i]?.bundle ?? null]));
-      const children: ChildView[] = partial.map((c) => ({ ...c, bundle: bundleOf.get(c.label) ?? null }));
+      const recordsOf = new Map(withResolver.map((c, i) => [c.label, bundles[i]]));
+      const children: ChildView[] = partial.map((c) => ({ ...c, bundle: recordsOf.get(c.label)?.bundle ?? null, chain: recordsOf.get(c.label)?.chain ?? null }));
       return { name, registry, children };
     } catch (err) {
       throw new ChainReadError(`Could not read the subnames of ${name}: ${shortError(err)}`);

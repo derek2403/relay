@@ -21,7 +21,19 @@ export const RECORD_KEYS = {
   cap: (provider: string) => `${RECORD_PREFIX}.cap.${provider}`,
   /** Count cap per period: requests, or images for image APIs. */
   max: (provider: string) => `${RECORD_PREFIX}.max.${provider}`,
+  /** Blockchain grant (compact JSON, see lib/chain/grant.ts), read with the bundle. */
+  chain: `${RECORD_PREFIX}.chain`,
 };
+
+/** Longest `relay.chain` record the relay accepts; a longer one reads as unset (no chain access). */
+export const MAX_CHAIN_RECORD = 4096;
+
+/** The `relay.chain` record text, trimmed; null when unset, not a string or too long. */
+export function parseChainRecord(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string") return null;
+  const text = raw.trim();
+  return text && text.length <= MAX_CHAIN_RECORD ? text : null;
+}
 
 /** Every provider in the catalog. `metered` = the relay can price its calls, so dollar caps apply. */
 export const PROVIDERS = CATALOG.map((p) => ({ id: p.id as ProviderId, label: p.label as string, metered: p.dollarCaps as boolean }));

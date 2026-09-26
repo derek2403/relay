@@ -29,6 +29,11 @@ export type LevelView = {
    * the `relay.nbf` text record, written by the level above. Null when unset.
    */
   nbf?: number | null;
+  /**
+   * The `relay.chain` record (blockchain grant, written by the level above) as raw text,
+   * trimmed; null when unset, unreadable or longer than 4096 characters. Parse with lib/chain/grant.
+   */
+  chain?: string | null;
   /** Dollars spent (settled) in the current period, per provider. */
   spent: Partial<Record<ProviderId, number>>;
   /**
@@ -88,6 +93,10 @@ export type StatusResponse = {
   meterError?: string | null;
   /** Requests refused before the caller proved it owns a name (counted, not logged), since the relay started. */
   rejectedRequests?: number;
+  /** Names paused while an approver reviews an incident. Absent from relays without approvals. */
+  paused?: { name: string; incidentId: string }[];
+  /** World ID (approver verification) setup. Absent from relays without approvals. */
+  world?: { configured: boolean; environment: string; problems: string[] };
 };
 
 /** GET /api/relay/log — newest first. Same access rules as /policy; an agent token sees only its own names. */
@@ -124,6 +133,8 @@ export type ChildView = {
   resolver: Address | null;
   subregistry: Address | null;
   bundle: Bundle | null;
+  /** The `relay.chain` record text (see LevelView.chain). */
+  chain?: string | null;
 };
 
 /** Error body for every relay/API failure. */

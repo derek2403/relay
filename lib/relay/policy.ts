@@ -5,18 +5,30 @@
 // the leaf and the root is still held by RELAY_ROOT_OWNER, then applies
 // evaluate() from bundle.ts with each level's spend and count (settled plus
 // reserved) in its own period.
+//
+// With a guard (lib/relay/guard.ts, the approvals module), a name under review
+// is refused ("paused") and an approved scope (overlay) adds a virtual level
+// right after its subject, metered in its own bucket.
 
 import { type Address, isAddressEqual } from "viem";
 
 import { namehash, tryNormalize } from "../ens/names";
-import { PROVIDER_IDS, type ProviderId, evaluate, isProviderId, periodKey } from "./bundle";
+import { type LevelInput, PROVIDER_IDS, type ProviderId, evaluate, isProviderId, periodKey } from "./bundle";
 import { countText } from "./catalog";
 import { type RelayConfig, applyDnsAlias, getConfig } from "./config";
 import { type ChainLevel, type ChainReader, getChainReader, isChainReadError } from "./ens";
+import { type Overlay, type RelayGuard, memberLevelIndex, relayGuard } from "./guard";
 import { type Meter, getMeter, spendKey } from "./meter";
 import type { LevelView, PolicyResponse } from "./types";
 
-export type PolicyDeps = { config: RelayConfig; reader: ChainReader; meter: Meter; now?: () => Date };
+export type PolicyDeps = {
+  config: RelayConfig;
+  reader: ChainReader;
+  meter: Meter;
+  now?: () => Date;
+  /** Suspensions and approved scopes (the approvals module). Missing or null: ENS alone decides. */
+  guard?: RelayGuard | null;
+};
 
 /** Why a call was refused, so the relay can pick the HTTP status. */
 export type Denial =
@@ -29,12 +41,19 @@ export type Denial =
   | "unverified"
   | "not-canonical"
   | "root-mismatch"
-  | "policy";
+  | "policy"
+  /** Suspended while an approver reviews an incident (or the approvals store is broken). */
+  | "paused";
 
 export type PolicyDecision = PolicyResponse & {
   denial: Denial | null;
   /** Smallest remaining count (requests or images) across count-capped levels, or null if none caps it. */
   remainingCount: number | null;
+  /**
+   * Approved scopes applied to this decision (virtual levels, not in `levels`), for the chain layer and
+   * the UI. Includes an expired one when that is why the call was refused.
+   */
+  overlays: Overlay[];
 };
 
 /** The refusal for a name whose chain has a level that is no longer registered. */
@@ -44,15 +63,45 @@ export const revokedReason = (levelName: string) => `access revoked: ${levelName
 /** Default dependencies for the running server. */
 export function relayDeps(): PolicyDeps {
   const config = getConfig();
-  return { config, reader: getChainReader(config.rpcUrl, config.logsRpcUrl), meter: getMeter(config.dataDir) };
+  return { config, reader: getChainReader(config.rpcUrl, config.logsRpcUrl), meter: getMeter(config.dataDir), guard: relayGuard() };
 }
 
-type SpendLevel = Pick<LevelView, "name" | "resource" | "bundle">;
+/**
+ * A level whose spend is metered. `bucket` replaces the calendar period in the
+ * meter key (an approved scope's own allowance, e.g. "approval:<id>"); `label`
+ * names it in refusals.
+ */
+export type SpendLevel = Pick<LevelView, "name" | "resource" | "bundle"> & { bucket?: string; label?: string };
 
 const round9 = (usd: number) => Math.round(usd * 1e9) / 1e9;
 
 const levelSpendKey = (level: SpendLevel, provider: string, now: Date) =>
-  spendKey(namehash(level.name), level.resource, provider, periodKey(level.bundle?.period ?? "month", now));
+  spendKey(namehash(level.name), level.resource, provider, level.bucket ?? periodKey(level.bundle?.period ?? "month", now));
+
+const overlayLabel = (o: Pick<Overlay, "name" | "id">) => `${o.name} (approved scope ${o.id})`;
+
+/**
+ * `levels` with each overlay inserted as a virtual level right after the level
+ * named `after`: the subject's name and resource, the overlay's bundle, metered
+ * in the overlay's bucket. Overlays without a bundle don't narrow providers and
+ * add no level; overlays whose `after` isn't on the path are skipped.
+ */
+export function withOverlays(levels: SpendLevel[], overlays: Overlay[]): SpendLevel[] {
+  if (!overlays.length) return levels;
+  const out: SpendLevel[] = [];
+  for (const level of levels) {
+    out.push(level);
+    for (const o of overlays) {
+      if (o.after !== level.name || !o.bundle) continue;
+      const subject = levels.find((l) => l.name === o.name) ?? level;
+      out.push({ name: o.name, resource: subject.resource, bundle: o.bundle, bucket: o.bucket, label: overlayLabel(o) });
+    }
+  }
+  return out;
+}
+
+/** The levels to reserve and charge a decision's call on: its levels plus its approved scopes. */
+export const spendLevels = (decision: Pick<PolicyDecision, "levels" | "overlays">): SpendLevel[] => withOverlays(decision.levels, decision.overlays);
 
 /**
  * A level with its spend and counts. `spent` is settled dollars and `reserved`
@@ -141,10 +190,11 @@ export async function decide(
 
   const normalized = tryNormalize(input.name);
   const name = normalized ? applyDnsAlias(normalized, config.dnsAlias) : input.name;
-  const base = { name, provider, root, remaining: null, remainingCount: null, levels: [] as LevelView[] };
-  const deny = (denial: Denial, reason: string, levels: LevelView[] = []): PolicyDecision => ({
+  const base = { name, provider, root, remaining: null, remainingCount: null, levels: [] as LevelView[], overlays: [] as Overlay[] };
+  const deny = (denial: Denial, reason: string, levels: LevelView[] = [], overlays: Overlay[] = []): PolicyDecision => ({
     ...base,
     levels,
+    overlays,
     allowed: false,
     reason,
     denial,
@@ -165,19 +215,63 @@ export async function decide(
     return deny("unknown-provider", input.provider ? `unknown provider "${input.provider}"` : "no provider given", levels);
   }
 
+  // Suspensions and approved scopes. A broken guard fails closed for agent names.
+  let overlays: Overlay[] = [];
+  const guard = deps.guard ?? null;
+  if (guard) {
+    const nowSec = Math.floor(now.getTime() / 1000);
+    const member = memberLevelIndex(levels, config.rootOwner);
+    const agentName = member >= 0 && levels.length - 1 > member;
+    let broken: string | null;
+    let pause: ReturnType<RelayGuard["paused"]> = null;
+    try {
+      guard.observe?.(levels, nowSec);
+    } catch {}
+    try {
+      broken = guard.unavailable?.() ?? null;
+      if (!broken) {
+        pause = guard.paused(levels, nowSec);
+        overlays = guard.overlays(levels, nowSec).filter((o) => levels.some((l) => l.name === o.after));
+      }
+    } catch (err) {
+      broken = err instanceof Error ? err.message : String(err);
+    }
+    if (broken && agentName) return deny("paused", `approvals store unavailable: ${broken}`, levels);
+    if (pause) {
+      return deny("paused", `paused: ${pause.name} is under review (incident ${pause.incidentId}). An approver must review it in the portal.`, levels);
+    }
+    const ended = overlays.find((o) => !(o.notAfter > nowSec));
+    if (ended) {
+      const at = Number.isFinite(ended.notAfter) ? new Date(ended.notAfter * 1000).toISOString() : String(ended.notAfter);
+      return deny("policy", `approved scope for ${ended.name} ended at ${at}; request a renewal`, levels, overlays);
+    }
+  }
+
   // Budgets count what calls still running have reserved.
   const withHolds = (l: LevelView) => {
     const all: LevelView["spent"] = { ...l.spent };
     for (const [p, held] of Object.entries(l.reserved ?? {}) as [ProviderId, number][]) all[p] = round9((all[p] ?? 0) + held);
     return all;
   };
-  const decision = evaluate(
-    levels.map((l) => ({ name: l.name, bundle: l.bundle, spent: withHolds(l), used: l.used })),
-    provider,
-  );
+  const inputs = withOverlays(levels, overlays).map((l): LevelInput => {
+    if (l.bucket === undefined) {
+      const v = l as LevelView;
+      return { name: v.name, bundle: v.bundle, spent: withHolds(v), used: v.used };
+    }
+    // An approved scope: its spend and count live in its own bucket.
+    const key = levelSpendKey(l, provider, now);
+    return {
+      name: l.label ?? l.name,
+      bundle: l.bundle,
+      spent: { [provider]: round9(meter.spent(key) + meter.pending(key)) },
+      used: { [provider]: meter.used(key) + meter.pendingCount(key) },
+    };
+  });
+  const decision = evaluate(inputs, provider);
   return {
     ...base,
     levels,
+    overlays,
     allowed: decision.allowed,
     reason: decision.reason,
     remaining: decision.remaining,
@@ -244,8 +338,8 @@ export function reserve(
           ok: false,
           reason:
             left <= 0
-              ? `${level.name} has used its ${provider} cap ($${cap}), counting calls still running`
-              : `${level.name} has $${left.toFixed(4)} of its ${provider} cap left, less than this call could cost ($${usd.toFixed(4)})`,
+              ? `${level.label ?? level.name} has used its ${provider} cap ($${cap}), counting calls still running`
+              : `${level.label ?? level.name} has $${left.toFixed(4)} of its ${provider} cap left, less than this call could cost ($${usd.toFixed(4)})`,
         };
       }
     }
@@ -257,8 +351,8 @@ export function reserve(
           ok: false,
           reason:
             left <= 0
-              ? `${level.name} has used its ${provider} limit (${countText(provider, max)}), counting calls still running`
-              : `${level.name} has ${left} of its ${countText(provider, max)} left, fewer than this call asks for (${count})`,
+              ? `${level.label ?? level.name} has used its ${provider} limit (${countText(provider, max)}), counting calls still running`
+              : `${level.label ?? level.name} has ${left} of its ${countText(provider, max)} left, fewer than this call asks for (${count})`,
         };
       }
     }

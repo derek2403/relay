@@ -12,6 +12,7 @@ import type { Address } from "viem";
 import { RECORD_KEYS, parseBundle } from "./bundle";
 import { loadConfig } from "./config";
 import type { ChainLevel, ChainReader } from "./ens";
+import type { GuardLevel, Overlay, Pause, RelayGuard } from "./guard";
 import { Meter } from "./meter";
 import { type RelayDeps, handleRelayRequest } from "./providers";
 import { createLimits } from "./ratelimit";
@@ -29,6 +30,7 @@ export const bundle = (keys: string, limits: Limits = {}) =>
     ...Object.fromEntries(Object.entries(limits.maxes ?? {}).map(([p, v]) => [RECORD_KEYS.max(p), String(v)])),
   });
 
+/** A chain level for MemoryChain; `extra` overrides anything, e.g. `{ chain: '{"v":1,...}' }` for a relay.chain record. */
 export function level(name: string, owner: Address | null, b: ReturnType<typeof bundle>, extra: Partial<ChainLevel> = {}): ChainLevel {
   return {
     name,
@@ -82,6 +84,45 @@ export class MemoryChain implements ChainReader {
       }
       return l;
     });
+  }
+}
+
+/**
+ * A RelayGuard held in memory. `pause(name, incidentId)` suspends a name and
+ * everything below it; `overlay(o)` adds an approved scope; `broken` makes it
+ * report itself unavailable. `observed` counts observe() calls.
+ */
+export class MemoryGuard implements RelayGuard {
+  pauses: Pause[] = [];
+  scopes: Overlay[] = [];
+  broken: string | null = null;
+  observed = 0;
+
+  pause(name: string, incidentId = "inc_test", reason = "test") {
+    this.pauses.push({ incidentId, name, reason });
+    return this;
+  }
+
+  overlay(o: Partial<Overlay> & Pick<Overlay, "name">) {
+    const id = o.id ?? `ov_${this.scopes.length + 1}`;
+    this.scopes.push({ id, after: o.name, bundle: null, chain: null, notAfter: nowSec() + 3600, bucket: `approval:${id}`, ...o });
+    return this;
+  }
+
+  paused(levels: GuardLevel[]): Pause | null {
+    return this.pauses.find((p) => levels.some((l) => l.name === p.name)) ?? null;
+  }
+
+  overlays(levels: GuardLevel[]): Overlay[] {
+    return this.scopes.filter((o) => levels.some((l) => l.name === o.after));
+  }
+
+  observe() {
+    this.observed++;
+  }
+
+  unavailable() {
+    return this.broken;
   }
 }
 

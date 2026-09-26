@@ -20,7 +20,7 @@ import { applyDnsAlias, upstreamEnvName } from "./config";
 import { isChainReadError } from "./ens";
 import { type LiveChecker, liveCheckerFor } from "./live";
 import { type CallPlan, planCall, planImages } from "./plan";
-import { type PolicyDecision, type PolicyDeps, REVOKED_ERROR, type Reservation, available, decide, reserve } from "./policy";
+import { type PolicyDecision, type PolicyDeps, REVOKED_ERROR, type Reservation, available, decide, reserve, spendLevels } from "./policy";
 import { UsageTracker, type UsageFormat } from "./pricing";
 import { type RelayLimits, clientKey, isKnownGood, markKnownGood, relayLimits } from "./ratelimit";
 import { allowedRoutesText, pathSegments, routeDenial, routeFor } from "./routes";
@@ -544,8 +544,8 @@ const is2xx = (status: number) => status >= 200 && status < 300;
 
 /**
  * Handles /api/relay/<provider>/<path>. Status codes: 401 missing/bad/expired
- * token, owner mismatch or revoked token, 403 policy or route denial or a
- * removed/expired level ("access revoked"), 404 unknown provider, 413 body too
+ * token, owner mismatch or revoked token, 403 policy or route denial, a
+ * removed/expired level ("access revoked") or a name under review ("paused"), 404 unknown provider, 413 body too
  * large, 429 too many calls in flight or too many failed requests, 503
  * provider not configured, meter unavailable or root owner changed, 502
  * upstream or chain read failure.
@@ -623,7 +623,8 @@ export async function handleRelayRequest(request: Request, providerParam: string
     return errorResponse(502, "ENS read failed", reason);
   }
   const name = decision.name;
-  if (decision.denial !== null && decision.denial !== "policy") {
+  // "paused" comes after the chain checks: the caller owns a live name, so it is handled (and logged) below.
+  if (decision.denial !== null && decision.denial !== "policy" && decision.denial !== "paused") {
     // The caller hasn't shown it owns a live name: log only pairs that recently did (e.g. a revoked session).
     if (known) log({ allowed: false, reason: decision.reason, name });
     else {
@@ -646,7 +647,9 @@ export async function handleRelayRequest(request: Request, providerParam: string
   if (leaf.nbf && issuedAt < leaf.nbf) {
     return refuse(401, "token revoked", `tokens for ${leaf.name} issued before ${new Date(leaf.nbf * 1000).toISOString()} are refused (relay.nbf); sign a new one`);
   }
-  if (!decision.allowed) return refuse(403, "denied", decision.reason ?? "denied");
+  if (!decision.allowed) return refuse(403, decision.denial === "paused" ? "paused" : "denied", decision.reason ?? "denied");
+  // The levels whose budgets this call spends: the chain's, plus any approved scope (overlay).
+  const budgetLevels = spendLevels(decision);
 
   // 4. Provider, path and route. The mock (no upstream) is answered by the relay itself.
   if (entry.typedOnly) {
@@ -673,7 +676,7 @@ export async function handleRelayRequest(request: Request, providerParam: string
     return refuse(403, "denied", `the relay doesn't forward ${method} /${segments.join("/")} to ${provider}; allowed: ${allowedRoutesText(provider, config.extraRoutes)}`);
   }
   // Calls that cost money or are capped need a working meter; free, uncapped ones don't.
-  const capped = decision.levels.some((l) => l.bundle?.caps[provider] !== undefined || l.bundle?.maxes?.[provider] !== undefined);
+  const capped = budgetLevels.some((l) => l.bundle?.caps[provider] !== undefined || l.bundle?.maxes?.[provider] !== undefined);
   if (route.kind !== "free" && (entry.dollarCaps || capped)) {
     const why = meter.unavailable();
     if (why) return refuse(503, "meter unavailable", `${why}. Metered calls are refused until spend can be recorded.`);
@@ -734,7 +737,7 @@ export async function handleRelayRequest(request: Request, providerParam: string
       kind: route.kind,
       api: route.api,
       body,
-      available: available(decision.levels, provider, meter, now),
+      available: available(budgetLevels, provider, meter, now),
       maxOutputTokens: config.maxOutputTokens,
       codexPrices: config.codexPrices,
     });
@@ -747,7 +750,7 @@ export async function handleRelayRequest(request: Request, providerParam: string
   }
   let reservation: Reservation | null = null;
   if (usd > 0 || count > 0) {
-    const held = reserve(decision.levels, provider, usd, meter, now, count);
+    const held = reserve(budgetLevels, provider, usd, meter, now, count);
     if (!held.ok) return refuseAndLeave(403, "denied", held.reason);
     reservation = held.reservation;
   }
