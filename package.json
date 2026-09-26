@@ -15,7 +15,8 @@
     "build:cli": "node scripts/build-cli.mjs",
     "org:setup": "tsx scripts/org-setup.ts",
     "org:seed": "tsx scripts/org-seed.ts",
-    "demo:reset": "tsx scripts/demo-reset.ts"
+    "demo:reset": "tsx scripts/demo-reset.ts",
+    "verify:live": "tsx scripts/verify-live.ts"
   },
   "dependencies": {
     "@base-org/account": "2.5.13",
