@@ -18,7 +18,7 @@ import {
 } from "../lib/live-bundle-editor";
 import type { BundleDraft } from "../lib/relay/browser";
 import type { Bundle } from "../lib/relay/bundle";
-import { CATALOG } from "../lib/relay/catalog";
+import { CATALOG, isListed } from "../lib/relay/catalog";
 
 const draft = (over: Partial<BundleDraft> = {}): BundleDraft => ({ keys: [], caps: {}, maxes: {}, period: "month", ...over });
 const rows = (m: ReturnType<typeof bundleEditorModel>) => m.groups.flatMap((g) => g.rows);
@@ -78,8 +78,10 @@ test("icons: claude, openai-images and mock map to their marks", () => {
 
 test("inputs: $ caps only for dollarCaps APIs, count limits for all", () => {
   const m = bundleEditorModel(draft(), undefined);
-  assert.equal(rows(m).length, CATALOG.length);
-  for (const entry of CATALOG) {
+  const listed = CATALOG.filter((entry) => isListed(entry.id));
+  assert.equal(rows(m).length, listed.length);
+  assert.equal(row(m, "mock"), undefined, "the built-in test API isn't offered");
+  for (const entry of listed) {
     const r = row(m, entry.id)!;
     assert.equal(r.showCap, entry.dollarCaps, entry.id);
     assert.equal(r.showMax, true);

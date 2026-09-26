@@ -59,7 +59,7 @@ test("env template uses the typed root, else a neutral example", () => {
 
 test("providers split into with and without a key", () => {
   const { withKey, noKey } = providerSplit(status(["codex"]));
-  assert.deepEqual(withKey.map((p) => p.id), ["codex", "mock"]);
+  assert.deepEqual(withKey.map((p) => p.id), ["codex"], "the built-in test API isn't listed");
   assert.deepEqual(noKey.map((p) => p.id), ["github"]);
   assert.deepEqual(providerSplit(undefined), { withKey: [], noKey: [] });
 });
@@ -80,15 +80,14 @@ test("admin state follows viewAuth and the log probe", () => {
   assert.equal(adminState(undefined, { ok: false, status: null }), "unknown");
 });
 
-test("company default bundle: keyed APIs plus mock, capped where dollar caps apply", () => {
+test("company default bundle: keyed APIs, capped where dollar caps apply", () => {
   const b = companyDefault(status(["codex"]));
   assert.ok(b.keys.includes("codex"));
-  assert.ok(b.keys.includes("mock"));
+  assert.ok(!b.keys.includes("mock"), "the built-in test API isn't offered");
   assert.ok(!b.keys.includes("github"));
   assert.equal(b.period, "month");
-  assert.equal(b.caps.mock, 5);
-  for (const [id, cap] of Object.entries(b.caps)) if (id !== "mock") assert.equal(cap, 100);
-  assert.deepEqual(companyDefault(undefined).keys, ["mock"]);
+  for (const cap of Object.values(b.caps)) assert.equal(cap, 100);
+  assert.deepEqual(companyDefault(undefined).keys, []);
 });
 
 test("company checklist: ticks and prerequisites", () => {
@@ -160,5 +159,5 @@ test("reset summary and script commands", () => {
     resetSummary({ cleared: [], keys: 3, logEntries: 2, skipped: [{ name: "x", reason: "y" }] }),
     "Cleared 0 names · 3 spend entries · 2 log entries. 1 name skipped.",
   );
-  assert.deepEqual(SCRIPT_COMMANDS.map((c) => c.command), ["npm run org:setup", "npm run demo:reset"]);
+  assert.deepEqual(SCRIPT_COMMANDS.map((c) => c.command), ["npm run org:seed", "npm run demo:reset"]);
 });

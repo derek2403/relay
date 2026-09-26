@@ -7,7 +7,7 @@
 //
 // Shared by the relay (server) and the admin app (browser). Pure: no I/O.
 
-import { CATALOG, PROVIDER_IDS, type ProviderId, countText, isProviderId } from "./catalog";
+import { CATALOG, PROVIDER_IDS, type ProviderId, countText, isListed, isProviderId } from "./catalog";
 
 export { PROVIDER_IDS, isProviderId, type ProviderId };
 
@@ -114,6 +114,9 @@ export function describeBundle(bundle: Bundle | null): string {
   });
   return `${parts.join(" · ")} / ${bundle.period}`;
 }
+
+/** describeBundle for the dashboard, which doesn't list the built-in test API. */
+export const describeListed = (bundle: Bundle | null) => describeBundle(bundle && { ...bundle, keys: bundle.keys.filter(isListed) });
 
 // --- Policy ---------------------------------------------------------------
 

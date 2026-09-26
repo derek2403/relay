@@ -4,7 +4,7 @@
 import { providerMark } from "@/lib/provider-marks";
 import { type BundleDraft, type LevelBundle, type LimitsAbove, bundleFromDraft, limitsAbove } from "@/lib/relay/browser";
 import type { Bundle, Period } from "@/lib/relay/bundle";
-import { CATALOG, CATEGORY_LABELS, type Category, type ProviderId, countUnit } from "@/lib/relay/catalog";
+import { CATALOG, CATEGORY_LABELS, type Category, type ProviderId, countUnit, isListed } from "@/lib/relay/catalog";
 
 export const PERIOD_LABELS: Record<Period, string> = {
   month: "per month",
@@ -89,8 +89,9 @@ export function rowNotes(id: ProviderId, draft: { on: boolean; cap: string; max:
 export function bundleEditorModel(value: BundleDraft, above: LevelBundle[] | null | undefined): BundleEditorModel {
   const limits = new Map<ProviderId, LimitsAbove | null>(CATALOG.map((p) => [p.id as ProviderId, above ? limitsAbove(above, p.id) : null]));
   const blocked = (id: ProviderId) => !!limits.get(id)?.blockedBy;
-  const shown = CATALOG.filter((p) => !blocked(p.id) || value.keys.includes(p.id));
-  const hidden = CATALOG.filter((p) => blocked(p.id) && !value.keys.includes(p.id));
+  const listed = CATALOG.filter((p) => isListed(p.id));
+  const shown = listed.filter((p) => !blocked(p.id) || value.keys.includes(p.id));
+  const hidden = listed.filter((p) => blocked(p.id) && !value.keys.includes(p.id));
 
   const byLevel = new Map<string, string[]>();
   for (const p of hidden) {

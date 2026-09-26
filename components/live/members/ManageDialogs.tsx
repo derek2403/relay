@@ -22,7 +22,7 @@ import {
   nowSec,
   providerLabel,
 } from "@/lib/relay/browser";
-import { RECORD_KEYS, describeBundle } from "@/lib/relay/bundle";
+import { RECORD_KEYS, describeListed } from "@/lib/relay/bundle";
 import { CHAIN_ID } from "@/lib/wagmi";
 
 import { BundleEditor } from "../BundleEditor";
@@ -95,7 +95,7 @@ function EditLimitsForm({ node, onClose }: { node: RelayNode; onClose: () => voi
     const r = await tx.run(() =>
       mutateAsync({ address: node.resolver!, abi: PermissionedResolverImplAbi, functionName: "multicall", args: [calls], chainId: CHAIN_ID }),
     );
-    await after(r, "Limits saved on Sepolia.", "Limits saved", `${node.name}: ${describeBundle(parsed.bundle)}`);
+    await after(r, "Limits saved on Sepolia.", "Limits saved", `${node.name}: ${describeListed(parsed.bundle)}`);
   };
 
   return (

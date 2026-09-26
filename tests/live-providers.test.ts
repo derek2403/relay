@@ -43,16 +43,20 @@ const key = (over: Partial<CredentialKeyView>): CredentialKeyView => ({
   ...over,
 });
 
-test("status pill: codex live, others routed, mock is the test API", () => {
+test("status pill: codex live, others routed, mock is built in", () => {
   assert.deepEqual(statusPill(catalogEntry("codex"), true), { text: "Live · routed", tone: "live" });
   assert.deepEqual(statusPill(catalogEntry("claude"), true), { text: "Routed · key set", tone: "ok" });
   assert.deepEqual(statusPill(catalogEntry("github"), false), { text: "Routed · no key", tone: "idle" });
   assert.equal(statusPill(catalogEntry("slack"), undefined).text, "Checking…");
   assert.equal(statusPill(catalogEntry("mock"), false).tone, "builtin");
-  assert.equal(statusPill(catalogEntry("mock"), false).text, "Test API · no key needed");
-  const weather = CATALOG.find((e) => e.id === "weather")!;
-  assert.deepEqual(statusPill(weather, true), { text: "No key needed · routed", tone: "ok" });
-  assert.deepEqual(statusPill(weather, undefined), { text: "No key needed · routed", tone: "ok" });
+  assert.equal(statusPill(catalogEntry("mock"), false).text, "Built in · no key needed");
+  // Weather (OpenWeatherMap) has a key like the others.
+  const weather = catalogEntry("weather");
+  assert.deepEqual(statusPill(weather, true), { text: "Routed · key set", tone: "ok" });
+  assert.deepEqual(statusPill(weather, false), { text: "Routed · no key", tone: "idle" });
+  assert.equal(statusPill(weather, undefined).text, "Checking…");
+  // A public API without any key would still read as routed.
+  assert.deepEqual(statusPill({ id: "public", keyEnv: null, upstream: "https://api.example.com" }, undefined), { text: "No key needed · routed", tone: "ok" });
   assert.equal(customPill(true).text, "Stored · not routed");
   assert.equal(customPill(false).text, "No credentials");
 });
@@ -69,14 +73,15 @@ test("every catalog API has a brand mark or stroke icon", () => {
   assert.ok(iconPaths.weather && !providerMarks.weather);
 });
 
-test("keyless APIs: the test API is built in, weather is routed to its upstream", () => {
+test("keyless APIs: the test API is built in; weather has a key, so it is neither", () => {
   const byId = (id: string) => CATALOG.find((e) => e.id === id)!;
   assert.equal(isBuiltIn(byId("mock")), true);
   assert.equal(isKeyless(byId("mock")), false);
-  assert.equal(isKeyless(byId("weather")), true);
+  assert.equal(isKeyless(byId("weather")), false);
   assert.equal(isBuiltIn(byId("weather")), false);
   assert.equal(isKeyless(byId("github")), false);
-  assert.equal(upstreamHost(byId("weather").upstream), "api.open-meteo.com");
+  assert.equal(isKeyless({ keyEnv: null, upstream: "https://api.example.com" }), true);
+  assert.equal(upstreamHost(byId("weather").upstream), "api.openweathermap.org");
   assert.equal(upstreamHost(null), "");
   assert.equal(upstreamHost("not a url"), "not a url");
 });
@@ -106,6 +111,12 @@ test("shared keys and key rows per API", () => {
   assert.equal(fallback.length, 1);
   assert.equal(fallback[0].env, "STRIPE_SECRET_KEY");
   assert.equal(fallback[0].set, false);
+  // Weather's card edits OPENWEATHER_API_KEY like any other key, shared with nothing.
+  assert.deepEqual(sharedWith(catalogEntry("weather")), []);
+  assert.deepEqual(keysFor(catalogEntry("weather"), undefined).map((r) => [r.env, r.secret, r.set]), [["OPENWEATHER_API_KEY", true, false]]);
+  const weatherRows = keysFor(catalogEntry("weather"), [key({ env: "OPENWEATHER_API_KEY", apis: ["weather"], hint: "••••••••cdef" }), key({ env: "OPENAI_API_KEY" })]);
+  assert.deepEqual(weatherRows.map((r) => r.env), ["OPENWEATHER_API_KEY"]);
+  assert.equal(secretDisplay(weatherRows[0], true), "••••••••cdef");
 });
 
 test("redaction display never invents a secret and hides hints from anonymous viewers", () => {

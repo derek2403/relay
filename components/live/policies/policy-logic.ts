@@ -6,6 +6,7 @@ import { tryNormalize } from "@/lib/ens/names";
 import { ResolverRoles } from "@/lib/ens/roles";
 import { planName } from "@/lib/relay/browser";
 import { PROVIDERS } from "@/lib/relay/bundle";
+import { isListed } from "@/lib/relay/catalog";
 
 // --- Plans -------------------------------------------------------------------
 
@@ -53,7 +54,7 @@ export function pickMyLevel<T extends LevelCandidate>(selected: T | null, root: 
 // --- Delegates -------------------------------------------------------------------
 
 /** Providers with a dollar cap record (relay.cap.<id>), the ones a delegate may be given. */
-export const DELEGATABLE = PROVIDERS.filter((p) => p.metered);
+export const DELEGATABLE = PROVIDERS.filter((p) => p.metered && isListed(p.id));
 
 /** A typed address, or null when it isn't a valid (checksummed if mixed-case) address. */
 export const parseDelegate = (input: string): Address | null => {

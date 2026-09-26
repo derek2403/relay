@@ -18,7 +18,7 @@ import { useRelayNode } from "@/lib/hooks/useRelayNode";
 import { useRelaySubnameSetup } from "@/lib/hooks/useRelaySetup";
 import { useTx } from "@/lib/hooks/useTx";
 import { type BundleDraft, bundleCalls, bundleFromDraft, draftFromBundle } from "@/lib/relay/browser";
-import { describeBundle } from "@/lib/relay/bundle";
+import { describeListed } from "@/lib/relay/bundle";
 import { CHAIN_ID } from "@/lib/wagmi";
 
 import { Pill, SetupCard, Why, useOnTxSuccess } from "./bits";
@@ -82,7 +82,7 @@ export function CompanySetupCard() {
       setDraft(null);
       setEditing(false);
       await refresh();
-      log("Company limits saved", `${root}: ${describeBundle(bundle)}`);
+      log("Company limits saved", `${root}: ${describeListed(bundle)}`);
       toast("Company limits saved on Sepolia.");
     }
   };
@@ -188,7 +188,7 @@ export function CompanySetupCard() {
               </div>
             ) : undefined,
         },
-        { ...sLimits, label: current ? `Company limits: ${describeBundle(current)}` : "Write the company limits", detail: limitsDetail() },
+        { ...sLimits, label: current ? `Company limits: ${describeListed(current)}` : "Write the company limits", detail: limitsDetail() },
         {
           ...sSubnames,
           label: "Let people be added under the company",

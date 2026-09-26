@@ -10,6 +10,7 @@ import { useRelayAgentKeys } from "@/lib/hooks/useRelayAgents";
 import { useRelayLog, useRelayPolicy } from "@/lib/hooks/useRelayApi";
 import { agentToken, errorText, needsSignIn, nowSec, usd } from "@/lib/relay/browser";
 import { PROVIDERS } from "@/lib/relay/bundle";
+import { isListed } from "@/lib/relay/catalog";
 import type { LogEntry } from "@/lib/relay/types";
 
 import {
@@ -36,7 +37,7 @@ export function TryCall({ log }: { log: { data: LogEntry[] | undefined; refetch:
   const named = keysUnderRoot(agents.keys, live.root);
 
   const [agentAddr, setAgentAddr] = useState("");
-  const [provider, setProvider] = useState("mock");
+  const [provider, setProvider] = useState("codex");
   const [edits, setEdits] = useState<Record<string, Req>>({});
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CallResult | null>(null);
@@ -49,7 +50,7 @@ export function TryCall({ log }: { log: { data: LogEntry[] | undefined; refetch:
   const sample = trySample(provider);
   const req: Req = edits[provider] ?? { method: sample.method, path: sample.path, body: sample.body ?? "" };
   const setReq = (patch: Partial<Req>) => setEdits({ ...edits, [provider]: { ...req, ...patch } });
-  const providers: { id: string; label: string; configured?: boolean }[] = live.status?.providers.length ? live.status.providers : PROVIDERS;
+  const providers: { id: string; label: string; configured?: boolean }[] = (live.status?.providers.length ? live.status.providers : PROVIDERS).filter((p) => isListed(p.id));
   const configured = live.status?.providers.find((p) => p.id === provider)?.configured;
 
   const send = async (event?: FormEvent) => {

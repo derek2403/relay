@@ -7,7 +7,7 @@ import type { LiveNode } from "@/components/live/LiveContext";
 import type { RelayNodeKind } from "@/lib/hooks/useRelayNode";
 import { type LevelBundle, isNever, limitsAbove, providerLabel, usd } from "@/lib/relay/browser";
 import { type Bundle, type LevelInput, type Period, evaluate } from "@/lib/relay/bundle";
-import { CATALOG, CATEGORY_LABELS, type CatalogEntry, type ProviderId, countText } from "@/lib/relay/catalog";
+import { CATALOG, CATEGORY_LABELS, type CatalogEntry, type ProviderId, countText, isListed } from "@/lib/relay/catalog";
 import type { ChildView, ChildrenResponse, LevelStatus, LevelView, LogEntry, OwnedResponse, StatusResponse } from "@/lib/relay/types";
 import {
   type ActivityView,
@@ -182,7 +182,7 @@ export function toLiveNodes({ root, raw, nowSec, address, hasAgentKey }: LiveVie
     const mine = ownStatus(node, nowSec);
     // Removal and expiry cascade: a name is no better off than the level above it.
     const status: NodeStatus = parent?.status === "Revoked" || mine === "Revoked" ? "Revoked" : parent?.status === "Expired" ? "Expired" : mine;
-    const allowed = node.bundle?.keys ?? [];
+    const allowed = (node.bundle?.keys ?? []).filter(isListed);
     const providers = parent ? parent.providers.filter((id) => allowed.includes(id as ProviderId)) : [...allowed];
     const owner = isSet(node.owner) ? node.owner : isSet(node.latestOwner) ? node.latestOwner : zeroAddress;
     const badges: string[] = [];
@@ -238,8 +238,9 @@ function unitOf(entry: CatalogEntry): ProviderView["unit"] {
 }
 
 function providerStatus(entry: CatalogEntry, configured: boolean | undefined): string {
-  // Keyless public APIs (weather) are routed to their upstream; only the test API is answered by the relay.
-  if (!entry.keyEnv) return entry.upstream ? "No key needed · routed" : "Test API · no key needed";
+  // A keyless public API would be routed to its upstream; only the test API is answered by the relay.
+  // (Weather is OpenWeatherMap now, with OPENWEATHER_API_KEY like any other key.)
+  if (!entry.keyEnv) return entry.upstream ? "No key needed · routed" : "Built in · no key needed";
   if (configured === undefined) return "Relay not reached";
   return configured ? "Relay key set" : "No key on the relay";
 }
@@ -247,7 +248,7 @@ function providerStatus(entry: CatalogEntry, configured: boolean | undefined): s
 /** The relay's API catalog, with whether the relay holds each key (from /api/relay/status). */
 export function liveProviders(status: StatusResponse | undefined): ProviderView[] {
   const configured = new Map(status?.providers.map((p) => [p.id as string, p.configured]));
-  return (CATALOG as readonly CatalogEntry[]).map((entry) => {
+  return (CATALOG as readonly CatalogEntry[]).filter((entry) => isListed(entry.id)).map((entry) => {
     const set = entry.keyEnv ? configured.get(entry.id) : true;
     return {
       id: entry.id,
@@ -282,9 +283,9 @@ export function liveMetrics(opts: {
     featuredProviders: featured,
     usageLabel: opts.rootSpend === null ? "—" : usd(opts.rootSpend),
     usageCaption:
-      opts.rootSpend !== null ? `relay spend ${period}` : opts.spendClosed ? "relay spend (needs RELAY_ADMIN_TOKEN)" : "relay spend (sign in to see)",
+      opts.rootSpend !== null ? `relay spend ${period}` : opts.spendClosed ? "relay spend (admin only)" : "relay spend (sign in to see)",
     agentSessions: summary.sessions,
-    sessionsCaption: `includes ${summary.subagents} subagents`,
+    sessionsCaption: `includes ${summary.subagents} ${summary.subagents === 1 ? "subagent" : "subagents"}`,
   };
 }
 
@@ -324,7 +325,7 @@ export function liveGrants({ lineage, policyLevels, configured }: GrantsInput): 
   const entries = CATALOG as readonly CatalogEntry[];
 
   return entries
-    .filter((entry) => bundle.keys.includes(entry.id as ProviderId))
+    .filter((entry) => isListed(entry.id) && bundle.keys.includes(entry.id as ProviderId))
     .map((entry): GrantView => {
       const id = entry.id as ProviderId;
       const cap = bundle.caps[id];
@@ -346,7 +347,7 @@ export function liveGrants({ lineage, policyLevels, configured }: GrantsInput): 
 
       const key = configured(id);
       const notes = [
-        !entry.keyEnv ? (entry.upstream ? "No key needed" : "Test API") : key === undefined ? null : key ? "Relay key set" : "No key on the relay",
+        !entry.keyEnv ? "No key needed" : key === undefined ? null : key ? "Relay key set" : "No key on the relay",
         blockedBy ? `blocked by ${blockedBy}` : null,
         decision && !decision.allowed && !blockedBy ? decision.reason : null,
         !levels && (cap !== undefined || max !== undefined) ? "spend hidden" : null,
@@ -413,7 +414,7 @@ const DEPTH_TYPES: NodeType[] = ["company", "department", "team", "member", "age
  * loaded tree, else in /api/ens/owned's answer (which also sees names the tree didn't load).
  */
 export function roleFor(address: Address | null | undefined, nodes: readonly LiveNode[], owned?: OwnedResponse["names"]): string {
-  if (!address) return "Not connected";
+  if (!address) return "Connect a wallet";
   const mine = nodes
     .filter((node) => node.status !== "Revoked" && isSet(node.owner as Address) && isAddressEqual(node.owner as Address, address))
     .sort((a, b) => a.depth - b.depth)[0];

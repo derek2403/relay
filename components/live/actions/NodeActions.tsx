@@ -8,7 +8,7 @@ import { type LiveNode, useLive } from "@/components/live/LiveContext";
 import { useRelayAgentKeys } from "@/lib/hooks/useRelayAgents";
 import { useRelayNode } from "@/lib/hooks/useRelayNode";
 import { formatDate } from "@/lib/relay/browser";
-import { describeBundle } from "@/lib/relay/bundle";
+import { describeListed } from "@/lib/relay/bundle";
 import { shortAddress } from "@/lib/view-model";
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -48,8 +48,8 @@ export function NodeActions({ node }: { node: LiveNode }) {
     : chain.bundleError
       ? "Couldn't read. Refresh to try again."
       : chain.bundle?.plan
-        ? `${describeBundle(chain.bundle.bundle)} (plan ${chain.bundle.plan})`
-        : describeBundle(chain.bundle?.bundle ?? node.bundle);
+        ? `${describeListed(chain.bundle.bundle)} (plan ${chain.bundle.plan})`
+        : describeListed(chain.bundle?.bundle ?? node.bundle);
 
   return (
     <div className="live-node-actions">

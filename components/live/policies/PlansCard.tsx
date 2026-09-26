@@ -21,7 +21,7 @@ import {
   plansStorageKey,
   readBundle,
 } from "@/lib/relay/browser";
-import { describeBundle } from "@/lib/relay/bundle";
+import { describeListed } from "@/lib/relay/bundle";
 import { CHAIN_ID } from "@/lib/wagmi";
 
 import { BundleEditor } from "../BundleEditor";
@@ -156,7 +156,7 @@ function PlanForm({ initialSlug, myNode, parent, resolver, tx, onSaved, onClose 
     onSaved(target);
     await queryClient.invalidateQueries({ queryKey: ["relay-bundle", resolver] });
     await refresh();
-    log(updating ? "Plan updated" : "Plan created", `${target} · ${describeBundle(parsed.bundle)}`);
+    log(updating ? "Plan updated" : "Plan created", `${target} · ${describeListed(parsed.bundle)}`);
     toast(updating ? "Plan updated on Sepolia." : "Plan saved on Sepolia.");
   };
 
@@ -213,7 +213,7 @@ function PlanRow({ plan, resolver, onEdit }: { plan: string; resolver: Address; 
     <li className="live-plan-row">
       <span>
         <b>{planSlugOf(plan)}</b>
-        <small>{read.isLoading ? "…" : read.error ? "Couldn't read this plan." : describeBundle(read.data?.bundle ?? null)}</small>
+        <small>{read.isLoading ? "…" : read.error ? "Couldn't read this plan." : describeListed(read.data?.bundle ?? null)}</small>
       </span>
       <button type="button" className="secondary" onClick={onEdit}>
         Edit

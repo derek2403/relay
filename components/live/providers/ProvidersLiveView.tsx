@@ -8,7 +8,7 @@ import { useCallback, useState } from "react";
 import { useLive } from "@/components/live/LiveContext";
 import { Icon } from "@/components/ui/Icon";
 import { cx } from "@/lib/cx";
-import { CATALOG, type CatalogEntry } from "@/lib/relay/catalog";
+import { CATALOG, type CatalogEntry, isListed } from "@/lib/relay/catalog";
 import { apiErrorText, credentialsApi, statusOf, type CredentialsResponse, type CustomServiceView } from "./api";
 import { AttestationCard } from "./Attestation";
 import { CredentialDialog } from "./CredentialDialog";
@@ -83,7 +83,7 @@ export function ProvidersLiveView({ addRequest = 0 }: Props = {}) {
           ) : credsQuery.error ? (
             <p className="form-error" role="alert">
               {statusOf(credsQuery.error) === 404
-                ? "This relay has no credentials API yet. Key status below comes from the relay status."
+                ? "This relay doesn't serve a credentials API. Key status below comes from the relay status."
                 : apiErrorText(credsQuery.error)}
             </p>
           ) : (
@@ -95,7 +95,7 @@ export function ProvidersLiveView({ addRequest = 0 }: Props = {}) {
         </article>
       </div>
 
-      {groupCatalog(CATALOG).map((group) => (
+      {groupCatalog(CATALOG.filter((entry) => isListed(entry.id))).map((group) => (
         <section key={group.category} className="lp-group" aria-label={group.label}>
           <div className="lp-group-heading">
             <h3>{group.label}</h3>

@@ -3,11 +3,12 @@
 import { tryNormalize } from "@/lib/ens/names";
 import { type FunderStatus, envTemplate } from "@/lib/relay/browser";
 import { type Bundle, PROVIDERS } from "@/lib/relay/bundle";
+import { isListed } from "@/lib/relay/catalog";
 import type { StatusResponse } from "@/lib/relay/types";
 
 // --- Relay status -------------------------------------------------------------------
 
-export const DRAFT_ROOT_PROBLEM = "The company name must be a .eth name like acme.eth.";
+export const DRAFT_ROOT_PROBLEM = "The company name must be a .eth name, like yourcompany.eth.";
 
 /** The draft root typed in this browser, when it is a usable company root (a .eth second-level name). */
 export function draftRootOf(raw: string): string | null {
@@ -23,7 +24,7 @@ export const setupEnvTemplate = (draft: string) => envTemplate(draftRootOf(draft
 
 /** Catalog APIs the relay holds a key for, and the rest (still delegable; calls refused until a key is set). */
 export function providerSplit(status: StatusResponse | undefined) {
-  const providers = status?.providers ?? [];
+  const providers = (status?.providers ?? []).filter((p) => isListed(p.id));
   return { withKey: providers.filter((p) => p.configured), noKey: providers.filter((p) => !p.configured) };
 }
 
@@ -53,8 +54,8 @@ export function adminState(viewAuth: StatusResponse["viewAuth"], log: { ok: bool
 
 /** Starting point for the company bundle: every catalog API the relay has a key for (SRC CompanySetup). */
 export function companyDefault(status: StatusResponse | undefined): Bundle {
-  const keys = PROVIDERS.filter((p) => p.id === "mock" || status?.providers.find((s) => s.id === p.id)?.configured).map((p) => p.id);
-  const caps = Object.fromEntries(PROVIDERS.filter((p) => p.metered && keys.includes(p.id)).map((p) => [p.id, p.id === "mock" ? 5 : 100]));
+  const keys = PROVIDERS.filter((p) => isListed(p.id) && status?.providers.find((s) => s.id === p.id)?.configured).map((p) => p.id);
+  const caps = Object.fromEntries(PROVIDERS.filter((p) => p.metered && keys.includes(p.id)).map((p) => [p.id, 100]));
   return { keys, caps, maxes: {}, period: "month" };
 }
 
@@ -149,15 +150,15 @@ export type ScriptCommand = { command: string; title: string; what: string; env:
 
 export const SCRIPT_COMMANDS: readonly ScriptCommand[] = [
   {
-    command: "npm run org:setup",
+    command: "npm run org:seed",
     title: "Build the company",
-    what: "Registers <org>.eth with 3 departments and 6 teams, plus the launch squad and its member mia. Every level gets its own registry and limits on the admin's resolver. Safe to re-run: finished steps are skipped.",
+    what: "Registers <org>.eth and every department, team, member, agent and subagent in org/<org>.json. Every level gets its own registry and limits. Safe to re-run: finished steps are skipped.",
     env: "ADMIN_PRIVATE_KEY, ORG_LABEL (else RELAY_ROOT_NAME)",
   },
   {
     command: "npm run demo:reset",
-    title: "Undo a demo run",
-    what: "Removes every name added under the teams, asks the relay to clear spend for names that no longer exist, and deletes the CLI keys and what Codex wrote in demo-workspace/. The company, departments and teams stay.",
+    title: "Remove added names",
+    what: "Removes every name added under the teams, asks the relay to clear spend for names that no longer exist, and deletes the local CLI keys. The company, departments and teams stay.",
     env: "ADMIN_PRIVATE_KEY, ORG_LABEL, RELAY_ADMIN_TOKEN, RELAY_URL · flags --yes, --keep-home",
   },
 ];

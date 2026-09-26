@@ -213,8 +213,8 @@ test("toLiveNodes builds the view: types, cascade, providers, counts and badges"
   assert.equal(by("sub.bot.amy.dev.eng.acme.eth").type, "subagent");
   assert.equal(by("amy.dev.eng.acme.eth").label, "amy");
 
-  // Every ancestor must allow a provider (claude is dropped at eng).
-  assert.deepEqual(by("acme.eth").providers, ["codex", "claude", "mock"]);
+  // Every ancestor must allow a provider (claude is dropped at eng); the built-in test API isn't listed.
+  assert.deepEqual(by("acme.eth").providers, ["codex", "claude"]);
   assert.deepEqual(by("dev.eng.acme.eth").providers, ["codex"]);
   // Missing bundle = no access below it.
   assert.deepEqual(toLiveNodes({ root: "acme.eth", raw: [raw("acme.eth", { bundle: null }), raw("x.acme.eth")], nowSec: NOW })[1].providers, []);
@@ -253,6 +253,7 @@ test("liveProviders covers the catalog with marks and key status", () => {
     providers: [
       { id: "codex", label: "OpenAI Codex", configured: true, metered: true },
       { id: "claude", label: "Anthropic Claude", configured: false, metered: true },
+      { id: "weather", label: "Weather (OpenWeatherMap)", configured: true, metered: false },
     ],
   } as unknown as StatusResponse;
   const providers = liveProviders(status);
@@ -266,11 +267,13 @@ test("liveProviders covers the catalog with marks and key status", () => {
   assert.equal(by("openai-images").unit, "usd"); // priced per image, so dollar caps apply
   assert.equal(by("github").unit, "access");
   assert.equal(by("codex").unit, "usd");
-  assert.equal(by("mock").statusText, "Test API · no key needed");
-  assert.equal(by("weather").statusText, "No key needed · routed");
+  assert.equal(providers.find((p) => p.id === "mock"), undefined, "the built-in test API isn't listed");
+  assert.equal(by("weather").statusText, "Relay key set"); // OPENWEATHER_API_KEY, like any other key
   assert.equal(by("weather").mark, "weather");
   assert.equal(by("weather").unit, "access"); // count caps only
   assert.equal(by("weather").configured, true);
+  assert.equal(by("weather").description, "Current weather and forecasts by city: /data/2.5/weather?q=Tokyo&units=metric.");
+  assert.equal(liveProviders({ ...status, providers: [] }).find((p) => p.id === "weather")!.statusText, "No key on the relay");
   assert.equal(providerMark("github"), "github");
   assert.equal(liveProviders(undefined).find((p) => p.id === "codex")!.statusText, "Relay not reached");
 });
@@ -308,8 +311,7 @@ test("liveGrants shows limits, spend and parent blocks", () => {
   assert.equal(codex.limitLabel, "$20.00");
   assert.deepEqual(codex.usage, { pct: 75, usedLabel: "$15.00", leftLabel: "$5.00" });
   assert.equal(codex.note, "Relay key set");
-  assert.equal(eng.find((g) => g.providerId === "mock")!.limitLabel, "No cap");
-  assert.equal(eng.find((g) => g.providerId === "mock")!.note, "Test API");
+  assert.equal(eng.find((g) => g.providerId === "mock"), undefined, "the built-in test API isn't listed");
 
   // Over the cap: nothing left, and the reason says who stopped it.
   const spent = liveGrants({
@@ -340,7 +342,7 @@ test("liveGrants shows limits, spend and parent blocks", () => {
   assert.deepEqual(liveGrants({ lineage: [{ name: "acme.eth", bundle: null }], policyLevels: null, configured }), []);
 });
 
-test("liveGrants: weather is keyless, so it notes no key and shows a request count", () => {
+test("liveGrants: weather notes whether the relay holds its key and shows a request count", () => {
   const bundle = (keys: string[], maxes: Record<string, number> = {}): Bundle => ({ keys: keys as never, caps: {}, maxes, period: "month" });
   const lineage = [
     { name: "acme.eth", bundle: bundle(["weather", "codex"]) },
@@ -352,11 +354,13 @@ test("liveGrants: weather is keyless, so it notes no key and shows a request cou
       { name: "acme.eth", spent: {} },
       { name: "derek.acme.eth", spent: {}, used: { weather: 5 } },
     ],
-    configured: () => undefined,
+    configured: (id) => (id === "weather" ? true : undefined),
   });
   assert.equal(weather.providerId, "weather");
-  assert.equal(weather.note, "No key needed");
+  assert.equal(weather.note, "Relay key set");
   assert.deepEqual(weather.usage, { pct: 25, usedLabel: "5 requests", leftLabel: "15 requests" });
+  const [noKey] = liveGrants({ lineage, policyLevels: null, configured: () => false });
+  assert.equal(noKey.note, "No key on the relay · spend hidden");
 });
 
 test("liveMetrics and levelSpend", () => {
@@ -368,7 +372,7 @@ test("liveMetrics and levelSpend", () => {
   assert.equal(metrics.usageLabel, "$12.50");
   assert.equal(metrics.usageCaption, "relay spend this month");
   assert.equal(metrics.agentSessions, 2);
-  assert.equal(metrics.sessionsCaption, "includes 1 subagents");
+  assert.equal(metrics.sessionsCaption, "includes 1 subagent");
   assert.deepEqual(
     metrics.featuredProviders.map((p) => p.id),
     ["codex", "claude", "github", "openai-images"],
@@ -377,7 +381,7 @@ test("liveMetrics and levelSpend", () => {
   assert.equal(liveMetrics({ nodes: [], providers, providerIndex: {}, root: null, rootSpend: null, rootPeriod: null }).usageCaption, "relay spend (sign in to see)");
   assert.equal(
     liveMetrics({ nodes: [], providers, providerIndex: {}, root: null, rootSpend: null, rootPeriod: null, spendClosed: true }).usageCaption,
-    "relay spend (needs RELAY_ADMIN_TOKEN)",
+    "relay spend (admin only)",
   );
   assert.equal(levelSpend({ spent: { codex: 1.5, claude: 2 } }), 3.5);
   assert.equal(levelSpend(undefined), null);
@@ -416,7 +420,7 @@ test("activity merges relay decisions with local events, newest first", () => {
 
 test("roleFor derives the connected wallet's place", () => {
   const nodes = toLiveNodes({ root: "acme.eth", raw: sampleTree(), nowSec: NOW });
-  assert.equal(roleFor(undefined, nodes), "Not connected");
+  assert.equal(roleFor(undefined, nodes), "Connect a wallet");
   assert.equal(roleFor(OWNER, nodes), "Workspace owner");
   assert.equal(roleFor(LEAD, nodes), "Department lead");
   assert.equal(roleFor(AGENT, nodes), "Agent");
