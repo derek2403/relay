@@ -64,3 +64,6 @@ next-env.d.ts
 !/demo-workspace/relay
 !/demo-workspace/AGENTS.md
 !/demo-workspace/.agents/
+
+# the installable CLI bundle (npm run build:cli; the relay serves it at /cli/relay.mjs)
+/public/cli/

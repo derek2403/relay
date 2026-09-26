@@ -3,13 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "npm run build:cli",
     "dev": "next dev --hostname 127.0.0.1 --port 3000",
+    "prebuild": "npm run build:cli",
     "build": "next build --webpack",
     "start": "next start --hostname 127.0.0.1 --port 3000",
     "typecheck": "tsc --noEmit --incremental false",
     "test": "tsx --test \"lib/**/*.test.ts\" \"tests/**/*.test.ts\"",
     "agent": "tsx scripts/agent.ts",
     "relay": "tsx scripts/relay.ts",
+    "build:cli": "node scripts/build-cli.mjs",
     "org:setup": "tsx scripts/org-setup.ts",
     "org:seed": "tsx scripts/org-seed.ts",
     "demo:reset": "tsx scripts/demo-reset.ts"
@@ -31,6 +34,7 @@
     "@types/node": "20.19.43",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "esbuild": "0.28.2",
     "tsx": "4.23.15",
     "typescript": "5.9.3"
   },
