@@ -23,14 +23,20 @@ import {
   chainNow,
   draftFromBundle,
   emptyBundle,
+  encodeSetText,
   errorText,
   funderOf,
+  nowSec,
   readBundle,
   relayApi,
 } from "@/lib/relay/browser";
+import { chainRecords } from "@/lib/live-bundle-editor";
+import { lineageOf } from "@/lib/live/view";
 import { CHAIN_ID } from "@/lib/wagmi";
 
 import { BundleEditor } from "../BundleEditor";
+import { type ChainDraft, grantFromDraft, newMemberChainDraft, pathGrant, serializeGrant, withChainKey } from "../chain/grant-model";
+import { useChainStatus } from "../chain/hooks";
 import { useLive } from "../LiveContext";
 import { Steps } from "../tx/Steps";
 import { TxButton } from "../tx/TxButton";
@@ -96,6 +102,18 @@ function AddMemberForm({
   const parentBundle = chain.levels ? (chain.levels[chain.levels.length - 1]?.bundle ?? null) : (parent.bundle?.bundle ?? null);
   const value = draft ?? draftFromBundle(emptyBundle("month"));
   const parsed = bundleFromDraft(value);
+
+  // Blockchain grant (relay.chain), written with the limits: starts as what the levels above allow.
+  const recipients = useChainStatus().data?.recipients ?? {};
+  const [chainDraft, setChainDraft] = useState<ChainDraft | null>(null);
+  const lineage = parentName ? lineageOf(live.nodes, parentName).map((l) => ({ name: l.name, chain: live.nodes.find((n) => n.name === l.name)?.chain })) : [];
+  const chainAbove = lineage.length ? pathGrant(lineage, recipients) : null;
+  const chainValue = chainDraft ?? newMemberChainDraft(chainAbove, nowSec());
+  const chainParsed = grantFromDraft(chainValue, nowSec());
+  const chainGrant = chainAbove && !chainAbove.pending ? chainParsed.grant : null;
+  // A grant needs "multibaas" in relay.keys; added when the levels above allow it.
+  const toWrite = parsed.bundle ? withChainKey(parsed.bundle, chainGrant, parentBundle) : null;
+  const addsMultibaas = !!toWrite && !!parsed.bundle && toWrite.keys.length > parsed.bundle.keys.length;
 
   const state = useReadContract({
     address: parent.subregistry ?? undefined,
@@ -171,8 +189,14 @@ function AddMemberForm({
             abi: PermissionedResolverImplAbi,
             functionName: "multicall",
             // Records outlive a removed name. Always detach first (you hold ROLE_LINK on your own
-            // resolver), so these writes can't edit a plan an earlier holder was on.
-            args: [bundleCalls(childName!, parsed.bundle!, { unlink: true })],
+            // resolver), so these writes can't edit a plan an earlier holder was on. The chain grant
+            // rides in the same multicall.
+            args: [
+              [
+                ...bundleCalls(childName!, toWrite!, { unlink: true }),
+                ...(chainGrant ? chainRecords(serializeGrant(chainGrant)).map(([key, v]) => encodeSetText(childName!, key, v)) : []),
+              ],
+            ],
             chainId: CHAIN_ID,
           }),
     );
@@ -305,7 +329,17 @@ function AddMemberForm({
         )}
       </div>
       {duration === "custom" && myPlans.length > 0 && <PlanSelect plans={myPlans} plan={plan} setPlan={setPlan} />}
-      {!plan && <BundleEditor value={value} onChange={setDraft} parent={parentBundle} parentName={parentName} above={chain.levels ?? (chain.error ? undefined : null)} />}
+      {!plan && (
+        <BundleEditor
+          value={value}
+          onChange={setDraft}
+          parent={parentBundle}
+          parentName={parentName}
+          above={chain.levels ?? (chain.error ? undefined : null)}
+          chain={lineage.length ? { value: chainValue, onChange: setChainDraft, above: chainAbove, recipients } : undefined}
+        />
+      )}
+      {!plan && addsMultibaas && <div className="form-hint">MultiBaas is added to their APIs so the blockchain grant can be used.</div>}
       {chain.error && (
         <div className="form-hint">Couldn&apos;t read what the levels above allow ({errorText(chain.error as Error)}). The relay still enforces them.</div>
       )}
@@ -332,14 +366,14 @@ function AddMemberForm({
         {funder?.enabled ? " Then the relay sends them a little Sepolia ETH for gas." : ""}
       </div>
       <p className="form-error" role="alert">
-        {problem}
+        {problem ?? (!plan ? chainParsed.error : null)}
       </p>
       <TxStatus tx={tx} showEvents={false} />
       <div className="dialog-footer">
         <button type="button" className="secondary" onClick={onClose}>
           Cancel
         </button>
-        <TxButton tx={tx} variant="primary" onClick={add} disabled={!!problem || !label || !owner}>
+        <TxButton tx={tx} variant="primary" onClick={add} disabled={!!problem || !label || !owner || (!plan && !!chainParsed.error)}>
           {registered && !takenByOther ? "Write their limits" : `Add ${childName ?? "member"}`}
         </TxButton>
       </div>

@@ -8,6 +8,8 @@ import { PermissionedResolverImplAbi } from "@/lib/ens/abis/PermissionedResolver
 import { UserRegistryImplAbi } from "@/lib/ens/abis/UserRegistryImpl";
 import { dnsEncode, labelId, namehash } from "@/lib/ens/names";
 import { useRelayLevels } from "@/lib/hooks/useRelayLevels";
+import { chainRecords } from "@/lib/live-bundle-editor";
+import { lineageOf } from "@/lib/live/view";
 import type { RelayNode } from "@/lib/hooks/useRelayNode";
 import { type TxResult, useTx } from "@/lib/hooks/useTx";
 import {
@@ -18,6 +20,7 @@ import {
   chainNow,
   defaultBundle,
   draftFromBundle,
+  encodeSetText,
   formatDate,
   nowSec,
   providerLabel,
@@ -25,6 +28,8 @@ import {
 import { RECORD_KEYS, describeListed } from "@/lib/relay/bundle";
 import { CHAIN_ID } from "@/lib/wagmi";
 
+import { type ChainDraft, draftFromGrant, grantFromDraft, pathGrant, readGrant, serializeGrant } from "../chain/grant-model";
+import { useChainStatus } from "../chain/hooks";
 import { BundleEditor } from "../BundleEditor";
 import { useLive } from "../LiveContext";
 import { TxButton } from "../tx/TxButton";
@@ -67,6 +72,16 @@ function EditLimitsForm({ node, onClose }: { node: RelayNode; onClose: () => voi
   const after = useAfterWrite(node, onClose);
   const chain = useRelayLevels(node.name);
   const [draft, setDraft] = useState<BundleDraft | null>(null);
+  // Blockchain grant (relay.chain), edited only once the tree has read this name's record.
+  const live = useLive();
+  const recipients = useChainStatus().data?.recipients ?? {};
+  const [chainDraft, setChainDraft] = useState<ChainDraft | null>(null);
+  const lineage = node.name ? lineageOf(live.nodes, node.name).map((l) => ({ name: l.name, chain: live.nodes.find((n) => n.name === l.name)?.chain })) : [];
+  const currentChain = lineage[lineage.length - 1]?.chain;
+  const chainKnown = lineage.length > 0 && currentChain !== undefined;
+  const chainOriginal = readGrant(currentChain);
+  const chainValue = chainDraft ?? draftFromGrant(chainOriginal, nowSec());
+  const chainParsed = grantFromDraft(chainValue, nowSec(), chainOriginal);
 
   const current = node.bundle?.bundle ?? null;
   const linkedPlan = node.bundle?.plan ?? null;
@@ -84,7 +99,7 @@ function EditLimitsForm({ node, onClose }: { node: RelayNode; onClose: () => voi
   const { canDetach, stuckOnPlan } = editRules({ canLink: node.canLink, canSetAddress: node.canSetAddress, kind: node.kind, readOk, linkedPlan });
 
   const save = async () => {
-    if (!node.resolver || !node.name || !parsed.bundle || !readOk || stuckOnPlan) return;
+    if (!node.resolver || !node.name || !parsed.bundle || !readOk || stuckOnPlan || chainParsed.error) return;
     const calls = bundleCalls(node.name, parsed.bundle, {
       // Always detach first (whatever the read said): if the name shares a plan's record,
       // setText would otherwise change the limits of everyone on the plan.
@@ -92,6 +107,12 @@ function EditLimitsForm({ node, onClose }: { node: RelayNode; onClose: () => voi
       // Detaching starts a fresh record, so an agent's address is written again.
       agent: canDetach && node.kind === "agent" && node.owner ? node.owner : undefined,
     });
+    // The chain grant rides in the same multicall: edited → the new text; untouched → rewritten as
+    // is after a detach (a fresh record would otherwise drop it).
+    const chainText = chainDraft ? (chainParsed.grant ? serializeGrant(chainParsed.grant) : null) : (currentChain ?? null);
+    if (chainKnown && (chainDraft || (canDetach && currentChain))) {
+      for (const [key, value] of chainRecords(chainText)) calls.push(encodeSetText(node.name, key, value));
+    }
     const r = await tx.run(() =>
       mutateAsync({ address: node.resolver!, abi: PermissionedResolverImplAbi, functionName: "multicall", args: [calls], chainId: CHAIN_ID }),
     );
@@ -114,16 +135,23 @@ function EditLimitsForm({ node, onClose }: { node: RelayNode; onClose: () => voi
           {canDetach ? "Saving here gives it its own limits instead." : "This wallet can't take it off the plan, so saving here is turned off."}
         </div>
       )}
-      <BundleEditor value={value} onChange={setDraft} parent={parentBundle} parentName={parentLevel?.name ?? node.parent} above={chain.levels ? above : chain.error ? undefined : null} />
+      <BundleEditor
+        value={value}
+        onChange={setDraft}
+        parent={parentBundle}
+        parentName={parentLevel?.name ?? node.parent}
+        above={chain.levels ? above : chain.error ? undefined : null}
+        chain={chainKnown ? { value: chainValue, onChange: setChainDraft, above: lineage.length > 1 ? pathGrant(lineage.slice(0, -1), recipients) : undefined, recipients } : undefined}
+      />
       <p className="form-error" role="alert">
-        {parsed.error}
+        {parsed.error ?? chainParsed.error}
       </p>
       <TxStatus tx={tx} showEvents={false} />
       <div className="dialog-footer">
         <button type="button" className="secondary" onClick={onClose}>
           Cancel
         </button>
-        <TxButton tx={tx} variant="primary" onClick={save} disabled={!parsed.bundle || !readOk || stuckOnPlan}>
+        <TxButton tx={tx} variant="primary" onClick={save} disabled={!parsed.bundle || !readOk || stuckOnPlan || !!chainParsed.error}>
           Save limits
         </TxButton>
       </div>

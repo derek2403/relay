@@ -1,8 +1,9 @@
 // Live mode's view model: maps ENS chain state and relay answers to the shared
 // presentational types (lib/view-model.ts). Pure: no React, no I/O.
 
-import { type Address, isAddressEqual, zeroAddress } from "viem";
+import { type Address, isAddressEqual, keccak256, stringToBytes, zeroAddress } from "viem";
 
+import { type ChainLevel, type GrantRow, capsText, grantRows, pathGrant, readGrant, shortHex } from "@/components/live/chain/grant-model";
 import type { LiveNode } from "@/components/live/LiveContext";
 import type { RelayNodeKind } from "@/lib/hooks/useRelayNode";
 import { type LevelBundle, isNever, limitsAbove, providerLabel, usd } from "@/lib/relay/browser";
@@ -119,6 +120,8 @@ export type RawLiveNode = {
   member: boolean | null;
   /** An alias entry: the canonical name of its subregistry (see ListedChild.aliasOf). */
   aliasOf?: string | null;
+  /** The `relay.chain` record (blockchain grant) as raw text; null when unset, undefined while unknown. */
+  chain?: string | null;
 };
 
 // --- Nodes ---------------------------------------------------------------------------
@@ -170,6 +173,7 @@ export function toLiveNodes({ root, raw, nowSec, address, hasAgentKey }: LiveVie
     .filter((node) => node.name === root || node.name.endsWith(`.${root}`))
     .sort((a, b) => depthBelow(root, a.name) - depthBelow(root, b.name));
   const out = new Map<string, LiveNode>();
+  const chainPath = new Map<string, ChainLevel[]>();
 
   for (const node of ordered) {
     const depth = depthBelow(root, node.name);
@@ -183,12 +187,18 @@ export function toLiveNodes({ root, raw, nowSec, address, hasAgentKey }: LiveVie
     // Removal and expiry cascade: a name is no better off than the level above it.
     const status: NodeStatus = parent?.status === "Revoked" || mine === "Revoked" ? "Revoked" : parent?.status === "Expired" ? "Expired" : mine;
     const allowed = (node.bundle?.keys ?? []).filter(isListed);
-    const providers = parent ? parent.providers.filter((id) => allowed.includes(id as ProviderId)) : [...allowed];
+    let providers = parent ? parent.providers.filter((id) => allowed.includes(id as ProviderId)) : [...allowed];
+    // Blockchain access needs a relay.chain grant at every level too (not only the MultiBaas key).
+    const levels = [...(parentName ? (chainPath.get(parentName) ?? []) : []), { name: node.name, chain: node.chain }];
+    chainPath.set(node.name, levels);
+    const chain = pathGrant(levels);
     const owner = isSet(node.owner) ? node.owner : isSet(node.latestOwner) ? node.latestOwner : zeroAddress;
     const badges: string[] = [];
     if (address && isSet(node.owner) && isAddressEqual(node.owner, address)) badges.push("you");
     if (kind === "agent" && isSet(owner) && hasAgentKey?.(owner)) badges.push("key in this browser");
     if (node.plan) badges.push(`plan ${node.plan}`);
+    if (!chain.pending && !chain.grant) providers = providers.filter((id) => id !== "multibaas");
+    if (chain.grant) badges.push(`chain: ${capsText(chain.grant.caps)}`);
 
     out.set(node.name, {
       id: node.name,
@@ -211,6 +221,7 @@ export function toLiveNodes({ root, raw, nowSec, address, hasAgentKey }: LiveVie
       kind,
       bundle: node.bundle,
       aliasOf: node.aliasOf ?? null,
+      chain: node.chain,
     });
   }
 
@@ -366,6 +377,35 @@ export function lineageOf(nodes: readonly LiveNode[], id: string): LevelBundle[]
   return out;
 }
 
+// --- Blockchain permissions (detail panel) -------------------------------------------
+
+export type ChainDetailView = {
+  rows: GrantRow[];
+  /** Shown instead of rows: why the name has no chain access, or that the records are loading. */
+  empty: string | null;
+  /** Short "chain: read · track" summary for the section title. */
+  summary: string;
+};
+
+/**
+ * The selected name's blockchain permissions: the intersection of every level's relay.chain
+ * record from the root down (display only; the relay enforces), plus its own record's hash.
+ */
+export function liveChainGrant(nodes: readonly LiveNode[], id: string, recipients: Record<string, string> = {}, nowSec?: number): ChainDetailView {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const levels: ChainLevel[] = [];
+  for (let node = byId.get(id); node; node = node.parentId ? byId.get(node.parentId) : undefined) {
+    levels.unshift({ name: node.name, chain: node.chain });
+  }
+  const own = byId.get(id)?.chain;
+  const path = pathGrant(levels, recipients);
+  if (path.pending) return { rows: [], empty: "Reading blockchain grants…", summary: "" };
+  if (!path.grant) return { rows: [], empty: own || levels.length > 1 ? `No blockchain access: ${path.reason}.` : "No blockchain access.", summary: "no access" };
+  const rows = grantRows(path, readGrant(own), recipients, nowSec);
+  if (own) rows.push({ label: "Record hash", value: shortHex(keccak256(stringToBytes(own))) });
+  return { rows, empty: null, summary: capsText(path.grant.caps) };
+}
+
 // --- Activity ------------------------------------------------------------------------
 
 /** A row of the workspace activity list with the time it happened, for merging. */
@@ -383,7 +423,7 @@ export function logActivity(entry: LogEntry, index: number): TimedActivity {
   return {
     id: `log-${entry.ts}-${index}`,
     at: entry.ts,
-    title: `${outcome(entry)} · ${providerLabel(entry.provider)}`,
+    title: `${outcome(entry)} · ${entry.provider === "approvals" ? "Approvals" : providerLabel(entry.provider)}`,
     detail: [entry.name ?? "Unknown caller", `${entry.method} ${entry.path}`, entry.status ? `HTTP ${entry.status}` : null, cost, entry.reason]
       .filter(Boolean)
       .join(" · "),

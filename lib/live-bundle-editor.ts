@@ -3,7 +3,7 @@
 
 import { providerMark } from "@/lib/provider-marks";
 import { type BundleDraft, type LevelBundle, type LimitsAbove, bundleFromDraft, limitsAbove } from "@/lib/relay/browser";
-import type { Bundle, Period } from "@/lib/relay/bundle";
+import { type Bundle, type Period, RECORD_KEYS } from "@/lib/relay/bundle";
 import { CATALOG, CATEGORY_LABELS, type Category, type ProviderId, countUnit, isListed } from "@/lib/relay/catalog";
 
 export const PERIOD_LABELS: Record<Period, string> = {
@@ -148,3 +148,14 @@ export const setPeriod = (d: BundleDraft, period: Period): BundleDraft => ({ ...
 
 /** The bundle a draft describes, or the error to show (lib/relay/browser bundleFromDraft). */
 export const validateDraft = bundleFromDraft;
+
+// --- Blockchain grant (relay.chain) --------------------------------------------------------
+
+/**
+ * Text records for a name's blockchain grant, written next to bundleToRecords' records in the
+ * same resolver multicall: the canonical record text, or "" to clear it (no chain access).
+ * `serialized` comes from components/live/chain/grant-model serializeGrant (null = none).
+ */
+export function chainRecords(serialized: string | null): [string, string][] {
+  return [[RECORD_KEYS.chain, serialized ?? ""]];
+}

@@ -13,6 +13,8 @@ type DetailPanelProps = {
   note: string;
   /** Mode-specific buttons at the bottom of the panel. */
   actions?: ReactNode;
+  /** Live mode: the name's blockchain permissions (relay.chain along its path); omitted in the demo. */
+  chain?: { rows: readonly { label: string; value: string }[]; empty: string | null; summary: string } | null;
   onSelectParent: () => void;
 };
 
@@ -54,7 +56,7 @@ function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-export function DetailPanel({ node, grants, parentLabel, providerIndex, note, actions, onSelectParent }: DetailPanelProps) {
+export function DetailPanel({ node, grants, parentLabel, providerIndex, note, actions, chain, onSelectParent }: DetailPanelProps) {
   return (
     <aside id="details" className="detail-panel" aria-label="Selected identity details">
       {node && (
@@ -81,6 +83,23 @@ export function DetailPanel({ node, grants, parentLabel, providerIndex, note, ac
               <GrantRow key={grant.providerId} grant={grant} providerIndex={providerIndex} />
             ))}
           </div>
+          {chain && (
+            <div className="detail-section chain-detail">
+              <div className="detail-section-title">
+                {"Blockchain permissions "}
+                <span>{chain.summary || "MultiBaas"}</span>
+              </div>
+              {chain.empty ? (
+                <small className="api-status">{chain.empty}</small>
+              ) : (
+                chain.rows.map((row) => (
+                  <InfoRow key={row.label} label={row.label}>
+                    <b>{row.value}</b>
+                  </InfoRow>
+                ))
+              )}
+            </div>
+          )}
           <div className="detail-section">
             <InfoRow label="Parent">
               {parentLabel === null ? (

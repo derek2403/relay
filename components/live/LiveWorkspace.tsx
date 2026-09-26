@@ -26,6 +26,7 @@ import {
   initialsFor,
   levelSpend,
   lineageOf,
+  liveChainGrant,
   liveGrants,
   liveMetrics,
   liveProviders,
@@ -35,14 +36,17 @@ import {
 } from "@/lib/live/view";
 import { DRAFT_ROOT_STORAGE, errorText, needsSignIn } from "@/lib/relay/browser";
 import type { ProviderId } from "@/lib/relay/catalog";
+import type { ChildrenResponse } from "@/lib/relay/types";
 import { ALL_BRANCHES, indexProviders, shortAddress, visibleNodes } from "@/lib/view-model";
 import { CHAIN_ID } from "@/lib/wagmi";
 import { AdminSignIn, LiveNotice, NoRootNotice, RelayClosed, RelayUnreachable, isRootName } from "./actions/LiveNotices";
 import { NodeActions } from "./actions/NodeActions";
 import { AgentsView } from "./agents/AgentsView";
+import { ApprovalsView } from "./approvals/ApprovalsView";
+import { useChainStatus, useRootChainRecord } from "./chain/hooks";
 import { firstTeam } from "./agents/model";
 import { LiveSpend } from "./agents/LiveSpend";
-import { LiveContext, type LiveContextValue, type LiveViewId } from "./LiveContext";
+import { LiveContext, type LiveContextValue, type LiveViewId, type ReviewTarget } from "./LiveContext";
 import { PoliciesView } from "./policies/PoliciesView";
 import { ProvidersLiveView } from "./providers/ProvidersLiveView";
 import { SetupView } from "./setup/SetupView";
@@ -52,6 +56,7 @@ const TITLES: Record<LiveViewId, string> = {
   tree: "Access tree",
   providers: "Providers",
   agents: "Agents",
+  approvals: "Approvals",
   policies: "Policies",
   setup: "Setup",
 };
@@ -60,6 +65,7 @@ const DESCRIPTIONS: Record<LiveViewId, string> = {
   tree: "Who may use which API, and how much, from the company down to each subagent.",
   providers: "Keys stay in the relay. Names only carry limits.",
   agents: "Agent keys in this browser, and what the relay decided.",
+  approvals: "Incidents and blockchain proposals waiting for a human.",
   policies: "Shared limits, and who may change them.",
   setup: "What the relay serves, and what is left to set up.",
 };
@@ -119,11 +125,21 @@ export function LiveWorkspace() {
   const [events, setEvents] = useState<TimedActivity[]>([]);
   /** Bumped by the page heading's "Add a provider"; ProvidersLiveView opens its dialog on each change. */
   const [addProviderRequest, setAddProviderRequest] = useState(0);
+  const [review, setReview] = useState<ReviewTarget | null>(null);
   const { toast: toastState, showToast } = useToast();
 
+  // relay.chain records: the root's from its resolver, every other name's from its parent's listing.
+  const rootChain = useRootChainRecord(root, tree.rootNode.resolver ?? null);
+  const raw = tree.raw.map((node) => {
+    if (node.name === root) return { ...node, chain: rootChain };
+    const parentName = node.name.slice(node.name.indexOf(".") + 1);
+    const listing = queryClient.getQueryData<ChildrenResponse>(childrenQuery(parentName).queryKey);
+    return { ...node, chain: listing?.children.find((child) => child.name === node.name)?.chain };
+  });
   const nodes = useStable(
-    root ? toLiveNodes({ root, raw: tree.raw, nowSec: now, address, hasAgentKey: (owner) => !!agentKeys.find(owner) }) : [],
+    root ? toLiveNodes({ root, raw, nowSec: now, address, hasAgentKey: (owner) => !!agentKeys.find(owner) }) : [],
   );
+  const chainStatus = useChainStatus(!!status.data);
   const providers = useMemo(() => liveProviders(status.data), [status.data]);
   const providerIndex = useMemo(() => indexProviders(providers), [providers]);
   const rootView = nodes.find((node) => node.parentId === null) ?? null;
@@ -182,6 +198,23 @@ export function LiveWorkspace() {
     if (next === "tree") setFitRequest((count) => count + 1);
   }, []);
   const select = useCallback((id: string) => setSelectedId(id), []);
+  const openReview = useCallback(
+    (target: ReviewTarget) => {
+      setReview(target);
+      setView("approvals");
+    },
+    [setView],
+  );
+  const clearReview = useCallback(() => setReview(null), []);
+  // Deep links the relay hands out: /?view=approvals&incident=inc_… (or &proposal=prp_…).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const incident = params.get("incident");
+    const proposal = params.get("proposal");
+    const id = incident ?? proposal;
+    if (id && /^(inc|prp)_[A-Za-z0-9_-]{1,64}$/.test(id)) openReview({ kind: incident ? "incident" : "proposal", id });
+    else if (params.get("view") === "approvals") setView("approvals");
+  }, [openReview, setView]);
   const setDraftRoot = useCallback((name: string) => saveDraftRoot(name), [saveDraftRoot]);
 
   const context = useMemo<LiveContextValue>(
@@ -202,11 +235,15 @@ export function LiveWorkspace() {
       refresh,
       log: log_,
       toast,
+      openReview,
+      review,
+      clearReview,
     }),
-    [root, setDraftRoot, status.data, status.error, nodes, providerIndex, tree.loading, selected, select, address, onSepolia, view, setView, refresh, log_, toast],
+    [root, setDraftRoot, status.data, status.error, nodes, providerIndex, tree.loading, selected, select, address, onSepolia, view, setView, refresh, log_, toast, openReview, review, clearReview],
   );
 
   const configured = (id: ProviderId) => (status.data ? (providerIndex[id]?.configured ?? false) : undefined);
+  const chainDetail = selected ? liveChainGrant(nodes, selected.id, chainStatus.data?.recipients ?? {}, now || undefined) : null;
   const grants = selected ? liveGrants({ lineage: lineageOf(nodes, selected.id), policyLevels: policy.data?.levels ?? null, configured }) : [];
   const metrics = liveMetrics({
     nodes,
@@ -274,6 +311,7 @@ export function LiveWorkspace() {
       grants={grants}
       parentLabel={parent?.label ?? null}
       providerIndex={providerIndex}
+      chain={chainDetail}
       note={
         selected?.aliasOf
           ? `Alias of ${selected.aliasOf}: the same group, reached through a second path. The relay refuses names under this path, so manage it at ${selected.aliasOf}.`
@@ -361,6 +399,11 @@ export function LiveWorkspace() {
               {view === "agents" && (
                 <section id="agentsView" className="view">
                   <AgentsView />
+                </section>
+              )}
+              {view === "approvals" && (
+                <section id="approvalsView" className="view">
+                  <ApprovalsView />
                 </section>
               )}
               {view === "policies" && (

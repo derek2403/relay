@@ -1,5 +1,6 @@
 "use client";
 
+import { ChainGrantEditor, type ChainGrantEditorProps } from "@/components/live/chain/ChainGrantEditor";
 import { Icon } from "@/components/ui/Icon";
 import { type BundleEditorModel, PERIOD_LABELS, bundleEditorModel, levelsAbove, setCap, setMax, setPeriod, toggleKey } from "@/lib/live-bundle-editor";
 import type { BundleDraft, LevelBundle } from "@/lib/relay/browser";
@@ -22,10 +23,12 @@ export type BundleEditorProps = {
   legend?: string;
   /** Locks every input (e.g. while a transaction is running). */
   disabled?: boolean;
+  /** Adds the "Blockchain (MultiBaas)" section (the relay.chain grant, written with the bundle). */
+  chain?: ChainGrantEditorProps;
 };
 
 /** Catalog checkboxes with $ caps (dollarCaps APIs only), count caps (relay.max.*), and the period — SRC BundleEditor semantics. */
-export function BundleEditor({ value, onChange, parent, parentName, above, fixedPeriod, legend = "API permissions", disabled }: BundleEditorProps) {
+export function BundleEditor({ value, onChange, parent, parentName, above, fixedPeriod, legend = "API permissions", disabled, chain }: BundleEditorProps) {
   const model: BundleEditorModel = bundleEditorModel(value, levelsAbove({ above, parent, parentName }));
   return (
     <fieldset className="bundle-editor live-bundle" disabled={disabled}>
@@ -100,6 +103,7 @@ export function BundleEditor({ value, onChange, parent, parentName, above, fixed
         </label>
       )}
       <p className="live-bundle-note">Empty = no cap at this level. Every level above is checked too.</p>
+      {chain && <ChainGrantEditor {...chain} />}
     </fieldset>
   );
 }

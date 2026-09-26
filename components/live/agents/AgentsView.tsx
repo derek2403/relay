@@ -1,11 +1,12 @@
 "use client";
 
-// Live "03 Agents": agent keys in this browser, try a call, live spend and the relay's log.
+// Live "03 Agents": agent keys in this browser, try a call, a blockchain task, live spend and the relay's log.
 // Contract: see components/live/LiveContext.tsx.
 
 import { SectionHeading } from "@/components/shell/SectionHeading";
 import { useLiveLog } from "@/lib/live/hooks";
 
+import { TaskPanel } from "../chain/TaskPanel";
 import { useLive } from "../LiveContext";
 
 import { AgentKeys } from "./AgentKeys";
@@ -27,6 +28,11 @@ export function AgentsView() {
       <section className="agents-section">
         <SectionHeading title="Try a call" subtitle="A request through the relay, signed by one of these agents." />
         <TryCall log={log} />
+      </section>
+
+      <section className="agents-section">
+        <SectionHeading title="Blockchain task" subtitle="Plain language in, typed steps out. Reads run now; writes become proposals a human approves." />
+        <TaskPanel />
       </section>
 
       <section className="agents-section">

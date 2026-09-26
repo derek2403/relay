@@ -9,6 +9,7 @@ import { useLive } from "@/components/live/LiveContext";
 import { Icon } from "@/components/ui/Icon";
 import { cx } from "@/lib/cx";
 import { CATALOG, type CatalogEntry, isListed } from "@/lib/relay/catalog";
+import { ChainStatusBlock } from "@/components/live/chain/ChainStatusBlock";
 import { apiErrorText, credentialsApi, statusOf, type CredentialsResponse, type CustomServiceView } from "./api";
 import { AttestationCard } from "./Attestation";
 import { CredentialDialog } from "./CredentialDialog";
@@ -158,7 +159,7 @@ function CatalogCard({ entry, creds, pill, authorized, onEdit }: CardProps) {
   const shared = sharedWith(entry);
   const main = keys.find((k) => k.env === entry.keyEnv);
   return (
-    <article className={cx("provider-card", "lp-card", entry.id === "codex" && "lp-featured")}>
+    <article className={cx("provider-card", "lp-card", (entry.id === "codex" || entry.id === "multibaas") && "lp-featured")}>
       <StatusPill pill={pill} />
       <h2>
         <span className="provider-logo">
@@ -211,6 +212,7 @@ function CatalogCard({ entry, creds, pill, authorized, onEdit }: CardProps) {
             </div>
           )}
           {entry.note && <p>{entry.note}</p>}
+          {entry.id === "multibaas" && <ChainStatusBlock />}
           <button type="button" className="detail-button lp-edit" onClick={onEdit}>
             Edit credentials
           </button>
